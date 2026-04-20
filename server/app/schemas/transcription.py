@@ -29,6 +29,7 @@ class TranscriptionConfirm(BaseModel):
     用于 POST /api/v1/transcriptions/{id}/confirm
     """
     content: str = Field(..., min_length=1, description="用户确认后的文本内容")
+    customer_id: Optional[str] = Field(None, description="指定归属客户ID（可选，用于首页草稿流程）")
 
 
 # ==========================================

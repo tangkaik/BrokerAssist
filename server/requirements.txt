@@ -18,5 +18,11 @@ supabase==2.3.4
 # HTTP Client
 httpx==0.25.0
 
+# Security
+PyJWT==2.8.0
+argon2-cffi==23.1.0
+
 # Utilities
 python-dateutil==2.8.2
+pydub==0.25.1
+PyYAML==6.0.1

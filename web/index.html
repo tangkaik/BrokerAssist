@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BrokerAssist</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="topbar-brand">BrokerAssist</div>
+        <div class="topbar-actions">
+          <div id="auth-status" class="auth-status hidden">
+            <div class="auth-identity">
+              <strong id="auth-user-name">未登录</strong>
+              <span id="auth-user-account" class="muted compact"></span>
+            </div>
+            <div class="auth-actions">
+              <button id="open-settings" type="button" class="icon-button" aria-label="设置">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M19.14 12.94a7.55 7.55 0 0 0 .05-.94a7.55 7.55 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.13 7.13 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.55 7.55 0 0 0-.05.94c0 .32.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7" />
+                </svg>
+              </button>
+              <button id="logout-button" type="button" class="button button-ghost">退出登录</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <aside class="panel sidebar">
+          <div class="panel-header">
+            <div>
+              <h2>客户列表</h2>
+            </div>
+            <div class="toolbar">
+              <button id="refresh-customers" class="icon-button icon-button-soft" type="button" title="刷新客户列表" aria-label="刷新客户列表">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M20 5v5h-5" />
+                  <path d="M20 10a8 8 0 1 0 2 5.5" />
+                </svg>
+              </button>
+              <button id="open-create-customer" class="icon-button icon-button-brand" type="button" title="新建客户" aria-label="新建客户">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5v14" />
+                  <path d="M5 12h14" />
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="sidebar-controls">
+            <label class="search-field search-inline">
+              <input id="customer-search" type="search" placeholder="姓名、标签" />
+              <span class="search-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">
+                  <path d="M10.5 4a6.5 6.5 0 1 1 0 13a6.5 6.5 0 0 1 0-13m0-2a8.5 8.5 0 1 0 5.33 15.13l4.52 4.52l1.41-1.41l-4.52-4.52A8.5 8.5 0 0 0 10.5 2" />
+                </svg>
+              </span>
+            </label>
+            <label class="sort-field sort-inline">
+              <select id="customer-sort" aria-label="客户排序">
+                <option value="updated_at:desc">最近更新</option>
+                <option value="name:asc">姓名 A-Z</option>
+                <option value="name:desc">姓名 Z-A</option>
+                <option value="created_at:desc">最新创建</option>
+                <option value="created_at:asc">最早创建</option>
+              </select>
+            </label>
+          </div>
+
+          <div id="customer-list" class="customer-list"></div>
+        </aside>
+
+        <section class="panel main-panel">
+          <div class="panel-header">
+            <div>
+              <h2>客户详情</h2>
+            </div>
+          </div>
+
+          <div id="detail-empty" class="empty-state">
+            <h3>桌面版已经准备好了</h3>
+            <p>从左侧选择客户后，这里会展示摘要、跟进建议、记录时间线和客户专属 AI 问答。</p>
+          </div>
+
+          <div id="detail-content" class="detail-content hidden">
+            <div class="detail-section-nav" aria-label="客户详情导航">
+              <button type="button" class="section-nav-chip active" data-section-nav="summary-section">客户画像</button>
+              <button type="button" class="section-nav-chip" data-section-nav="advice-section">拜访建议</button>
+              <button type="button" class="section-nav-chip" data-section-nav="customer-chat-section">问AI</button>
+              <button type="button" class="section-nav-chip" data-section-nav="record-section">拜访记录</button>
+            </div>
+            <section class="hero-card">
+              <div class="hero-top">
+                <div class="hero-copy">
+                  <div class="hero-avatar" aria-hidden="true">照片</div>
+                  <div class="hero-copy-main">
+                    <div class="hero-name-row">
+                      <h3 id="customer-name"></h3>
+                      <button id="open-edit-customer" class="icon-button icon-button-soft icon-button-small" type="button" title="编辑客户资料" aria-label="编辑客户资料">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M4 20h4l10-10l-4-4L4 16z" />
+                          <path d="M13 7l4 4" />
+                        </svg>
+                      </button>
+                    </div>
+                    <p id="customer-meta" class="meta-line"></p>
+                    <div id="customer-tags" class="tag-row"></div>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="customer-chat-section" class="content-card">
+              <div class="card-head">
+                <div>
+                  <p class="card-kicker">Customer Copilot</p>
+                  <h3>问这个客户</h3>
+                </div>
+              </div>
+              <form id="customer-chat-form" class="stack-form">
+                <textarea
+                  id="customer-chat-input"
+                  rows="3"
+                  placeholder="例如：这位客户目前最值得我继续追问的信息是什么？"
+                ></textarea>
+                <div class="form-actions">
+                  <button type="submit" class="button button-secondary">提问</button>
+                </div>
+              </form>
+              <div id="customer-chat-answer" class="prose-block muted hidden"></div>
+            </section>
+
+            <section class="grid-two">
+              <article id="summary-section" class="content-card">
+                <div class="card-head">
+                  <div>
+                    <p class="card-kicker">AI Summary</p>
+                    <h3>客户画像摘要</h3>
+                  </div>
+                  <div class="record-actions">
+                    <button id="generate-summary" class="icon-button icon-button-soft icon-button-small" type="button" title="刷新摘要" aria-label="刷新摘要">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20 5v5h-5" />
+                        <path d="M20 10a8 8 0 1 0 2 5.5" />
+                      </svg>
+                    </button>
+                    <button id="copy-summary" class="icon-button icon-button-soft icon-button-small" type="button" title="复制客户画像摘要" aria-label="复制客户画像摘要">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="9" y="9" width="10" height="10" rx="2" ry="2" />
+                        <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+                      </svg>
+                    </button>
+                    <button id="export-summary" class="icon-button icon-button-soft icon-button-small" type="button" title="分享或导出客户画像摘要" aria-label="分享或导出客户画像摘要">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 16V5" />
+                        <path d="M8 9l4-4l4 4" />
+                        <path d="M5 19h14" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <div id="summary-body" class="prose-block"></div>
+              </article>
+
+              <article id="advice-section" class="content-card accent-card">
+                <div class="card-head">
+                  <div>
+                    <p class="card-kicker">Follow-up</p>
+                    <h3>拜访建议</h3>
+                  </div>
+                  <div class="record-actions">
+                    <button id="generate-advice" class="icon-button icon-button-soft icon-button-small" type="button" title="刷新拜访建议" aria-label="刷新拜访建议">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M20 5v5h-5" />
+                        <path d="M20 10a8 8 0 1 0 2 5.5" />
+                      </svg>
+                    </button>
+                    <button id="copy-advice" class="icon-button icon-button-soft icon-button-small" type="button" title="复制拜访建议" aria-label="复制拜访建议">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <rect x="9" y="9" width="10" height="10" rx="2" ry="2" />
+                        <path d="M7 15H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v1" />
+                      </svg>
+                    </button>
+                    <button id="export-advice" class="icon-button icon-button-soft icon-button-small" type="button" title="分享或导出拜访建议" aria-label="分享或导出拜访建议">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 16V5" />
+                        <path d="M8 9l4-4l4 4" />
+                        <path d="M5 19h14" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+                <p id="advice-updated-at" class="meta-line muted"></p>
+                <div id="advice-body" class="prose-block muted">
+                  点击“生成拜访建议”后，这里会显示结构化建议。
+                </div>
+              </article>
+            </section>
+
+            <section id="record-section" class="content-card">
+              <div class="card-head">
+                <div>
+                  <p class="card-kicker">Timeline</p>
+                  <h3>沟通记录</h3>
+                </div>
+                <button id="open-add-record" class="icon-button icon-button-accent icon-button-small" type="button" title="添加拜访记录" aria-label="添加拜访记录">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14" />
+                    <path d="M5 12h14" />
+                  </svg>
+                </button>
+              </div>
+              <div id="record-list" class="record-list"></div>
+            </section>
+
+            <button id="delete-customer" class="button button-danger customer-delete-button">删除客户</button>
+          </div>
+        </section>
+
+        <aside class="panel side-panel">
+          <div class="panel-header">
+            <div>
+              <h2>AI问答</h2>
+            </div>
+            <button id="clear-global-chat" class="icon-button icon-button-soft" type="button" title="清空对话" aria-label="清空对话">
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 7h16" />
+                <path d="M9 7V5h6v2" />
+                <path d="M7 7l1 12h8l1-12" />
+                <path d="M10 11v5" />
+                <path d="M14 11v5" />
+              </svg>
+            </button>
+          </div>
+
+          <div id="global-chat-log" class="chat-log"></div>
+
+          <div id="global-suggestions" class="suggestions suggestions-bottom">
+            <button class="suggestion-chip" data-question="请列出当前所有客户。">请列出当前所有客户。</button>
+            <button class="suggestion-chip" data-question="哪些客户已经两个月没有联系了？">哪些客户已经两个月没有联系了？</button>
+            <button class="suggestion-chip" data-question="请推荐当前优先级最高的三位客户。">请推荐当前优先级最高的三位客户。</button>
+            <button class="suggestion-chip" data-question="海淀区有哪些客户？">海淀区有哪些客户？</button>
+            <button class="suggestion-chip" data-question="请帮我找出最近最值得约见的三位客户。">请帮我找出最近最值得约见的三位客户。</button>
+          </div>
+
+          <form id="global-chat-form" class="stack-form docked-form ai-composer">
+            <div id="global-chat-attachments" class="composer-attachments hidden"></div>
+            <textarea
+              id="global-chat-input"
+              rows="4"
+              placeholder="问一个跨客户的问题，例如：海淀附近有哪些客户？"
+            ></textarea>
+            <div class="composer-toolbar">
+              <div class="composer-left">
+                <input id="global-chat-files" class="hidden-file-input" type="file" accept="image/*" />
+                <button id="global-chat-file-trigger" type="button" class="composer-plus" aria-label="上传文件" title="上传文件">
+                  <svg viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 5v14" />
+                    <path d="M5 12h14" />
+                  </svg>
+                </button>
+              </div>
+              <button type="submit" class="send-fab composer-send" aria-label="发送">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 5l6 6h-4v8h-4v-8H6z"></path>
+                </svg>
+              </button>
+            </div>
+          </form>
+        </aside>
+      </main>
+    </div>
+
+    <section id="auth-screen" class="auth-screen hidden">
+      <div class="auth-card">
+        <div>
+          <p class="eyebrow">BrokerAssist</p>
+          <h2 id="auth-title">登录工作台</h2>
+          <p class="muted auth-copy">先用账号登录。桌面 Web 和手机端会共用这一套账号体系。</p>
+        </div>
+
+        <div class="auth-switch">
+          <button id="show-login" type="button" class="button button-ghost active">登录</button>
+          <button id="show-register" type="button" class="button button-ghost">注册</button>
+        </div>
+
+        <form id="login-form" class="stack-form">
+          <label>
+            <span>账号</span>
+            <input id="login-account" name="account" type="text" placeholder="手机号或邮箱" required />
+          </label>
+          <label>
+            <span>密码</span>
+            <input id="login-password" name="password" type="password" placeholder="至少 6 位" required />
+          </label>
+          <div class="form-actions">
+            <button id="login-submit" type="submit" class="button button-primary">登录</button>
+          </div>
+        </form>
+
+        <form id="register-form" class="stack-form hidden">
+          <label>
+            <span>昵称</span>
+            <input id="register-name" name="name" type="text" placeholder="可选" />
+          </label>
+          <label>
+            <span>账号</span>
+            <input id="register-account" name="account" type="text" placeholder="手机号或邮箱" required />
+          </label>
+          <label>
+            <span>密码</span>
+            <input id="register-password" name="password" type="password" placeholder="至少 6 位" required />
+          </label>
+          <div class="form-actions">
+            <button id="register-submit" type="submit" class="button button-primary">创建账号并登录</button>
+          </div>
+        </form>
+      </div>
+    </section>
+
+    <dialog id="settings-dialog" class="dialog">
+      <form id="api-config-form" class="dialog-form settings-form" method="dialog">
+        <div class="dialog-head">
+          <div>
+            <p class="panel-kicker">Settings</p>
+            <h3>设置</h3>
+          </div>
+          <button id="close-settings" type="button" class="button button-ghost">关闭</button>
+        </div>
+
+        <label>
+          <span>API Base URL</span>
+          <input
+            id="api-base-url"
+            type="text"
+            placeholder="http://127.0.0.1:8001/api/v1"
+          />
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" class="button button-primary">保存</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="create-customer-dialog" class="dialog">
+      <form id="create-customer-form" class="dialog-form" method="dialog">
+        <div class="dialog-head">
+          <div>
+            <p class="panel-kicker">New Customer</p>
+            <h3>新建客户</h3>
+          </div>
+          <button id="close-create-customer" type="button" class="button button-ghost">关闭</button>
+        </div>
+
+        <label>
+          <span>姓名</span>
+          <input id="create-name" name="name" type="text" required />
+        </label>
+        <label>
+          <span>电话</span>
+          <input id="create-phone" name="phone" type="text" />
+        </label>
+        <label>
+          <span>性别</span>
+          <select id="create-gender" name="gender">
+            <option value="">未选择</option>
+            <option value="男">男</option>
+            <option value="女">女</option>
+          </select>
+        </label>
+        <label>
+          <span>地址</span>
+          <input id="create-location" name="location" type="text" placeholder="如：西二旗、回龙观、望京SOHO" />
+          <small class="field-hint">填写客户常用的地址或地点，系统将自动识别所属区域。</small>
+        </label>
+        <label>
+          <span>标签</span>
+          <input
+            id="create-tags"
+            name="tags"
+            type="text"
+            placeholder="支持用中文或英文逗号分隔，例如：高净值，重疾险"
+          />
+          <small class="field-hint">可用中文逗号“，”或英文逗号“,”输入多个标签。</small>
+        </label>
+
+        <div class="form-actions">
+          <button type="submit" class="button button-primary">创建客户</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="add-record-dialog" class="dialog">
+      <form id="add-record-form" class="dialog-form" method="dialog">
+        <div class="dialog-head">
+          <div>
+            <p class="panel-kicker">Visit Record</p>
+            <h3 id="record-dialog-title">添加拜访记录</h3>
+          </div>
+          <button id="close-add-record" type="button" class="button button-ghost">关闭</button>
+        </div>
+
+        <label>
+          <span>记录内容</span>
+          <textarea
+            id="add-record-content"
+            name="content"
+            rows="8"
+            placeholder="输入这次拜访的核心内容、需求、顾虑、下一步动作等。"
+            required
+          ></textarea>
+        </label>
+
+        <label>
+          <span>地点线索</span>
+          <input
+            id="add-record-location"
+            name="location_raw"
+            type="text"
+            placeholder="例如：凯晨大厦、金融街、国贸附近咖啡厅、西二旗"
+          />
+          <small class="field-hint">可选。记录这次拜访最常用的位置线索，系统会在后台尝试归一化。</small>
+        </label>
+
+        <div class="image-upload-block">
+          <div id="existing-record-images-wrap" class="existing-record-images-wrap hidden">
+            <div class="upload-row">
+              <span>已有图片</span>
+            </div>
+            <div id="existing-record-images" class="image-preview-list"></div>
+          </div>
+          <div id="record-dropzone" class="record-dropzone">
+            <div class="upload-row">
+              <span>图片</span>
+              <button id="add-record-image-trigger" type="button" class="image-add-button" aria-label="添加图片">+</button>
+            </div>
+            <p class="dropzone-copy">点击 `+` 选择图片，或直接把图片拖到这里。</p>
+          </div>
+          <input id="add-record-images" name="images" type="file" accept="image/*" multiple class="hidden-file-input" />
+          <small class="field-hint">可上传一张或多张图片，保存后会在客户详情页显示缩略图。</small>
+          <div id="add-record-image-preview" class="image-preview-list"></div>
+        </div>
+
+        <div class="form-actions">
+          <button id="record-submit-button" type="submit" class="button button-primary">保存记录</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="edit-customer-dialog" class="dialog">
+      <form id="edit-customer-form" class="dialog-form" method="dialog">
+        <div class="dialog-head">
+          <div>
+            <p class="panel-kicker">Customer Profile</p>
+            <h3>编辑客户信息</h3>
+          </div>
+          <button id="close-edit-customer" type="button" class="button button-ghost">关闭</button>
+        </div>
+
+        <label>
+          <span>姓名</span>
+          <input id="edit-customer-name" name="name" type="text" required />
+        </label>
+        <label>
+          <span>电话</span>
+          <input id="edit-customer-phone" name="phone" type="text" />
+        </label>
+        <label>
+          <span>性别</span>
+          <select id="edit-customer-gender" name="gender">
+            <option value="">未选择</option>
+            <option value="男">男</option>
+            <option value="女">女</option>
+          </select>
+        </label>
+        <label>
+          <span>地址</span>
+          <input id="edit-customer-location" name="location" type="text" />
+        </label>
+        <label>
+          <span>标签</span>
+          <input id="edit-customer-tags" name="tags" type="text" placeholder="支持中文或英文逗号分隔" />
+          <small class="field-hint">可用中文逗号“，”或英文逗号“,”输入多个标签。</small>
+        </label>
+
+        <div class="form-actions">
+          <button id="edit-customer-submit" type="submit" class="button button-primary">保存客户信息</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="image-preview-dialog" class="dialog image-preview-dialog">
+      <div class="image-preview-shell">
+        <button id="close-image-preview" type="button" class="button button-ghost image-preview-close">关闭</button>
+        <img id="image-preview-target" alt="图片预览" />
+      </div>
+    </dialog>
+
+    <div id="toast" class="toast hidden"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

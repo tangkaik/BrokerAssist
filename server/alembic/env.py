@@ -15,6 +15,7 @@ from alembic import context
 # 导入应用配置和模型
 from app.core.config import settings
 from app.db.base import Base
+from app.models.user import User  # noqa: F401 - 导入以注册模型
 from app.models.customer import Customer  # noqa: F401 - 导入以注册模型
 
 # this is the Alembic Config object, which provides

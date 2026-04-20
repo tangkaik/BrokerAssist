@@ -54,7 +54,29 @@ class Customer(Base):
         nullable=True,
         comment="客户性别"
     )
-    
+
+    # 客户地址（结构化）
+    location_raw: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="原始地址字符串"
+    )
+    location_city: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="城市"
+    )
+    location_district: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="区/县"
+    )
+    location_subarea: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="片区/街道"
+    )
+
     # 标签 - 使用 JSONB 存储字符串数组
     tags: Mapped[List[str]] = mapped_column(
         JSONB,

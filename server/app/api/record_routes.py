@@ -13,7 +13,7 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db, get_current_user_id
@@ -74,6 +74,103 @@ async def create_record(
     )
 
 
+@router.post(
+    "/records/with-images",
+    summary="创建带图片的沟通记录",
+    description="为客户创建新的沟通记录，并可附带上传图片",
+    response_description="创建成功返回记录ID",
+)
+async def create_record_with_images(
+    customer_id: str = Form(...),
+    content: str = Form(...),
+    location_raw: Optional[str] = Form(None),
+    images: list[UploadFile] = File(default_factory=list),
+    user_id: str = Depends(get_current_user_id),
+    service: RecordService = Depends(get_record_service),
+):
+    """创建带图片的沟通记录"""
+    image_payloads: list[tuple[str, bytes, Optional[str]]] = []
+
+    for image in images:
+        if image.content_type and not image.content_type.startswith("image/"):
+            return error_response(
+                code="INVALID_IMAGE_TYPE",
+                message=f"{image.filename or '文件'} 不是支持的图片格式",
+                status_code=400,
+            )
+        image_payloads.append(
+            (
+                image.filename or "image.jpg",
+                await image.read(),
+                image.content_type,
+            )
+        )
+
+    record_id, error = await service.create_record_with_images(
+        user_id=user_id,
+        customer_id=customer_id,
+        content=content,
+        location_raw=location_raw,
+        images=image_payloads,
+    )
+
+    if error:
+        return not_found_error("客户")
+
+    return success_response(
+        data=RecordIdResponse(record_id=record_id),
+        status_code=201,
+    )
+
+
+@router.put(
+    "/records/{record_id}/with-images",
+    summary="更新沟通记录",
+    description="更新记录内容，并支持新增图片和删除已有图片",
+    response_description="更新后的记录",
+)
+async def update_record_with_images(
+    record_id: str,
+    content: str = Form(...),
+    location_raw: Optional[str] = Form(None),
+    keep_image_urls: list[str] = Form(default_factory=list),
+    images: list[UploadFile] = File(default_factory=list),
+    user_id: str = Depends(get_current_user_id),
+    service: RecordService = Depends(get_record_service),
+):
+    """更新记录及其图片"""
+    image_payloads: list[tuple[str, bytes, Optional[str]]] = []
+
+    for image in images:
+        if image.content_type and not image.content_type.startswith("image/"):
+            return error_response(
+                code="INVALID_IMAGE_TYPE",
+                message=f"{image.filename or '文件'} 不是支持的图片格式",
+                status_code=400,
+            )
+        image_payloads.append(
+            (
+                image.filename or "image.jpg",
+                await image.read(),
+                image.content_type,
+            )
+        )
+
+    record, error = await service.update_record_with_images(
+        user_id=user_id,
+        record_id=record_id,
+        content=content,
+        location_raw=location_raw,
+        keep_image_urls=keep_image_urls,
+        new_images=image_payloads,
+    )
+
+    if error:
+        return not_found_error("记录", record_id)
+
+    return success_response(data=record)
+
+
 @router.get(
     "/customers/{customer_id}/records",
     summary="客户记录列表",
@@ -99,6 +196,38 @@ async def get_customer_records(
     )
     
     return success_response(data=result)
+
+
+@router.post(
+    "/records/{record_id}/images/analyze",
+    summary="识别记录图片",
+    description="手动触发对某张记录图片的识别",
+    response_description="图片识别结果",
+)
+async def analyze_record_image(
+    record_id: str,
+    image_url: str = Form(...),
+    analyze_modes: list[str] = Form(default_factory=list),
+    user_id: str = Depends(get_current_user_id),
+    service: RecordService = Depends(get_record_service),
+):
+    payload, error = await service.analyze_record_image(
+        user_id=user_id,
+        record_id=record_id,
+        image_url=image_url,
+        analyze_modes=analyze_modes,
+    )
+
+    if error == "记录不存在或无权访问":
+        return not_found_error("记录", record_id)
+    if error:
+        return error_response(
+            code="IMAGE_ANALYZE_FAILED",
+            message=error,
+            status_code=400,
+        )
+
+    return success_response(data=payload)
 
 
 @router.delete(

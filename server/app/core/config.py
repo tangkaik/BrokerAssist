@@ -38,23 +38,50 @@ class Settings(BaseSettings):
     kimi_api_key: Optional[str] = None
     kimi_base_url: str = "https://api.moonshot.cn"
     kimi_model: str = "moonshot-v1-8k"
+    kimi_vision_model: Optional[str] = None
+
+    # AI 服务配置 - 阿里云百炼（图片问答）
+    dashscope_api_key: Optional[str] = None
+    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode"
+    dashscope_vl_model: str = "qwen3-vl-flash"
     
     # AI 服务配置 - 讯飞
     xunfei_app_id: Optional[str] = None
     xunfei_api_key: Optional[str] = None
     xunfei_api_secret: Optional[str] = None
     xunfei_base_url: str = "https://api.xfyun.cn/v1"
+
+    # 地图服务配置 - 高德
+    gaode_api_key: Optional[str] = None
+    gaode_geocode_base_url: str = "https://restapi.amap.com/v3/geocode/geo"
     
     # 安全/MVP 配置
     default_user_id: str = "default-user"
+    default_test_account: str = "test@brokerassist.local"
+    default_test_password: str = "Test123456"
+    default_test_name: str = "测试账号"
+    auth_secret_key: str = "brokerassist-dev-secret-change-me"
+    auth_token_expire_days: int = 30
     
     # 日志配置
     log_level: str = "INFO"
+    cors_allow_origins: str = "*"
     
     @property
     def is_production(self) -> bool:
         """是否为生产环境"""
         return not self.debug
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """解析逗号分隔的 CORS 来源配置。"""
+        if self.cors_allow_origins.strip() == "*":
+            return ["*"]
+        return [
+            origin.strip()
+            for origin in self.cors_allow_origins.split(",")
+            if origin.strip()
+        ] or ["*"]
     
     def validate(self) -> None:
         """启动时检查必填配置"""

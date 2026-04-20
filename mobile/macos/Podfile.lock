@@ -1,0 +1,28 @@
+PODS:
+  - audioplayers_darwin (0.0.1):
+    - FlutterMacOS
+  - FlutterMacOS (1.0.0)
+  - record_darwin (1.0.0):
+    - FlutterMacOS
+
+DEPENDENCIES:
+  - audioplayers_darwin (from `Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/macos`)
+  - FlutterMacOS (from `Flutter/ephemeral`)
+  - record_darwin (from `Flutter/ephemeral/.symlinks/plugins/record_darwin/macos`)
+
+EXTERNAL SOURCES:
+  audioplayers_darwin:
+    :path: Flutter/ephemeral/.symlinks/plugins/audioplayers_darwin/macos
+  FlutterMacOS:
+    :path: Flutter/ephemeral
+  record_darwin:
+    :path: Flutter/ephemeral/.symlinks/plugins/record_darwin/macos
+
+SPEC CHECKSUMS:
+  audioplayers_darwin: 761f2948df701d05b5db603220c384fb55720012
+  FlutterMacOS: d0db08ddef1a9af05a5ec4b724367152bb0500b1
+  record_darwin: 30509266ae213af8afdb09a8ae7467cb64c1377e
+
+PODFILE CHECKSUM: 54d867c82ac51cbd61b565781b9fada492027009
+
+COCOAPODS: 1.16.2

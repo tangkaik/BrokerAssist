@@ -51,7 +51,7 @@ def get_transcription_service(
     response_description="转写任务ID和转写结果",
 )
 async def upload_and_transcribe(
-    customer_id: str = Form(..., description="客户ID"),
+    customer_id: Optional[str] = Form(None, description="客户ID（可选，首页草稿流程可为空）"),
     file: UploadFile = File(..., description="音频文件"),
     user_id: str = Depends(get_current_user_id),
     service: TranscriptionService = Depends(get_transcription_service),
@@ -118,13 +118,43 @@ async def confirm_transcription(
     
     用户可以对转写文本进行编辑，确认后保存为正式的沟通记录（record）。
     只有 status=transcribed 的任务才能被确认。
+    支持传入 customer_id 用于首页草稿流程（将内容归属到指定客户）。
     保存后会自动更新客户的 summary_status 为 "stale"。
     """
     result = await service.confirm_transcription(
         user_id=user_id,
         transcription_id=transcription_id,
         content=data.content,
+        customer_id=data.customer_id,  # 支持传入 customer_id
     )
+    
+    return success_response(data=result)
+
+
+@router.get(
+    "/transcriptions/{transcription_id}",
+    summary="查询转写任务",
+    description="根据ID查询单个转写任务的状态和结果，用于前端轮询",
+    response_description="转写任务详情",
+)
+async def get_transcription(
+    transcription_id: str,
+    user_id: str = Depends(get_current_user_id),
+    service: TranscriptionService = Depends(get_transcription_service),
+):
+    """
+    查询单个转写任务
+    
+    用于前端轮询转写状态。
+    返回状态包括：pending/transcribing/transcribed/failed
+    """
+    result = await service.get_transcription(
+        user_id=user_id,
+        transcription_id=transcription_id,
+    )
+    
+    if not result:
+        return not_found_error("转写任务不存在或无权访问")
     
     return success_response(data=result)
 

@@ -12,9 +12,12 @@ import base64
 import hmac
 import json
 import logging
+import os
 import random
 import re
 import string
+import subprocess
+import tempfile
 import time
 import urllib.parse
 import wave
@@ -64,6 +67,93 @@ class XunfeiService:
         
         # HTTP 客户端
         self.client = httpx.AsyncClient(timeout=60.0, verify=False)
+    
+    def _convert_to_wav(self, audio_data: bytes, file_name: str) -> Tuple[Optional[bytes], Optional[str]]:
+        """
+        将任意格式音频转换为 WAV（16kHz, 16bit, 单声道）
+        
+        使用 ffmpeg 命令行直接转换，避免 pydub 封装问题。
+        仅用于讯飞转写，原始文件保留不变。
+        
+        Args:
+            audio_data: 原始音频二进制数据
+            file_name: 原始文件名（用于判断格式）
+            
+        Returns:
+            (转换后的 WAV 数据, 错误信息) - 成功时错误信息为 None
+        """
+        import tempfile
+        import subprocess
+        
+        input_path = None
+        output_path = None
+        
+        try:
+            # 1. 提取扩展名
+            ext = file_name.lower().split('.')[-1] if '.' in file_name else 'unknown'
+            logger.info(f"[音频转换] 开始: {file_name}, 格式: {ext}, 大小: {len(audio_data)} bytes")
+            
+            # 2. 创建临时文件（保留原始扩展名，ffmpeg 需要）
+            with tempfile.NamedTemporaryFile(suffix=f'.{ext}', delete=False) as f_in:
+                f_in.write(audio_data)
+                input_path = f_in.name
+            
+            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as f_out:
+                output_path = f_out.name
+            
+            # 3. 构建 ffmpeg 命令（16kHz, 16bit, 单声道）
+            cmd = [
+                '/usr/bin/ffmpeg',
+                '-y',                    # 覆盖输出文件
+                '-i', input_path,        # 输入文件
+                '-ar', '16000',          # 采样率 16kHz
+                '-ac', '1',              # 单声道
+                '-acodec', 'pcm_s16le',  # 16bit PCM
+                '-hide_banner',          # 隐藏版本信息
+                '-loglevel', 'error',    # 只显示错误
+                output_path
+            ]
+            
+            # 4. 执行转换
+            logger.info(f"[音频转换] 执行: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            
+            if result.returncode != 0:
+                error_msg = f"ffmpeg 转换失败: {result.stderr}"
+                logger.error(f"[音频转换] 失败: {error_msg}")
+                return None, error_msg
+            
+            # 5. 读取转换后的文件
+            with open(output_path, 'rb') as f:
+                wav_data = f.read()
+            
+            # 6. 检查结果
+            if len(wav_data) < 1000:  # 小于 1KB
+                error_msg = f"转换后文件异常过小: {len(wav_data)} bytes"
+                logger.error(f"[音频转换] 失败: {error_msg}")
+                return None, error_msg
+            
+            logger.info(f"[音频转换] 成功: {file_name} -> WAV, 原始 {len(audio_data)} bytes, 转换后 {len(wav_data)} bytes")
+            return wav_data, None
+            
+        except Exception as e:
+            # 捕获所有异常，打印详细信息
+            error_msg = (
+                f"音频转换失败 | "
+                f"文件名: {file_name} | "
+                f"扩展名: {file_name.split('.')[-1] if '.' in file_name else 'none'} | "
+                f"大小: {len(audio_data)} bytes | "
+                f"异常类型: {type(e).__name__} | "
+                f"异常信息: {str(e)}"
+            )
+            logger.exception(error_msg)
+            return None, error_msg
+        finally:
+            # 清理临时文件
+            if input_path and os.path.exists(input_path):
+                os.unlink(input_path)
+            if output_path and os.path.exists(output_path):
+                os.unlink(output_path)
     
     def _generate_random_str(self, length: int = 16) -> str:
         """生成随机字符串"""
@@ -202,9 +292,12 @@ class XunfeiService:
         """
         上传音频并创建转写任务
         
+        注意：非 WAV 格式会自动转换为 WAV 格式再上传给讯飞。
+        原始文件保留不变。
+        
         Args:
-            audio_data: 音频文件二进制数据
-            file_name: 文件名（必须是 .wav 格式）
+            audio_data: 音频文件二进制数据（原始文件）
+            file_name: 文件名
             
         Returns:
             (订单ID, 错误信息) - 成功时错误信息为 None
@@ -212,21 +305,30 @@ class XunfeiService:
         if not all([self.app_id, self.access_key_id, self.access_key_secret]):
             return None, "讯飞配置未完整设置（请检查 XUNFEI_APP_ID, XUNFEI_API_KEY, XUNFEI_API_SECRET）"
         
+        # 步骤 0: 格式转换（如果不是 WAV）
+        file_name_lower = file_name.lower()
+        if not file_name_lower.endswith('.wav'):
+            logger.info(f"[上传任务] 检测到非 WAV 格式，开始转换: {file_name}")
+            converted_data, error = self._convert_to_wav(audio_data, file_name)
+            if error:
+                return None, f"[格式转换]{error}"
+            # 使用转换后的数据（原始数据保留，仅用于讯飞）
+            audio_data = converted_data
+            file_name = file_name.rsplit('.', 1)[0] + '.wav'
+            logger.info(f"[上传任务] 转换完成，新文件名: {file_name}, 大小: {len(audio_data)} bytes")
+        
         # 准备参数
         file_size = str(len(audio_data))
         date_time = self._get_local_time_with_tz()
         signature_random = self._generate_random_str()
         
-        # 根据文件格式选择时长计算方式
-        file_name_lower = file_name.lower()
-        if file_name_lower.endswith('.wav'):
-            # WAV 格式：精确解析，解析失败时抛出错误
+        # 根据文件格式选择时长计算方式（此时一定是 WAV）
+        try:
             duration_ms = self._get_wav_duration_ms(audio_data)
             logger.info(f"WAV duration parsed: {duration_ms} ms")
-        else:
-            # 其他格式：估算时长
+        except Exception as e:
+            logger.error(f"解析 WAV 时长失败: {e}，使用估算值")
             duration_ms = self._estimate_duration_ms(len(audio_data), file_name)
-            logger.info(f"Estimated duration for non-WAV: {duration_ms} ms")
         
         logger.info(f"Uploading audio: {file_name}, size: {file_size} bytes, duration: {duration_ms} ms")
         

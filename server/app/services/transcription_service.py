@@ -32,6 +32,7 @@ from app.schemas.transcription import (
     TranscriptionConfirmResponse,
     TranscriptionItem,
     TranscriptionListResponse,
+    TranscriptionDetail,
 )
 from app.services.xunfei_service import XunfeiService
 from app.services.record_service import RecordService
@@ -168,17 +169,22 @@ class TranscriptionService:
         transcription_id = str(uuid.uuid4())
         
         try:
-            # ========== 步骤 1: 校验客户权限 ==========
-            customer = await self._verify_customer_access(user_id, customer_id)
-            if not customer:
-                # 早期失败：无 DB 记录，直接返回
-                return TranscriptionUploadResponse(
-                    transcription_id="",
-                    status="failed",
-                    original_name=file_name,
-                    transcript_text=None,
-                    error_message="[客户校验]客户不存在或无权访问",
-                )
+            # ========== 步骤 1: 校验客户权限（如果提供了 customer_id）==========
+            if customer_id:
+                customer = await self._verify_customer_access(user_id, customer_id)
+                if not customer:
+                    # 早期失败：无 DB 记录，直接返回
+                    return TranscriptionUploadResponse(
+                        transcription_id="",
+                        status="failed",
+                        original_name=file_name,
+                        transcript_text=None,
+                        error_message="[客户校验]客户不存在或无权访问",
+                    )
+            else:
+                # 首页草稿流程：customer_id 为空，使用临时值
+                customer = None
+                logger.info(f"[Upload] 首页草稿流程，customer_id 为空，创建未归属转写任务")
             
             # ========== 步骤 2: 校验文件 ==========
             is_valid, error_msg = self._validate_audio_file(file_name, file_size)
@@ -347,6 +353,7 @@ class TranscriptionService:
         user_id: str,
         transcription_id: str,
         content: str,
+        customer_id: Optional[str] = None,
     ) -> TranscriptionConfirmResponse:
         """
         确认转写结果并保存为 record
@@ -356,6 +363,9 @@ class TranscriptionService:
         - confirmed: 拒绝，提示"已确认"
         - pending/transcribing: 拒绝，提示"处理中，请等待"
         - failed: 拒绝，提示"转写失败，当前不可确认"
+        
+        Args:
+            customer_id: 可选，指定归属客户ID（用于首页草稿流程）
         """
         from fastapi import HTTPException
         
@@ -369,10 +379,15 @@ class TranscriptionService:
         if not transcription:
             raise HTTPException(status_code=404, detail="转写任务不存在")
         
-        # 2. 验证权限
-        customer = await self._verify_customer_access(user_id, transcription.customer_id)
+        # 2. 确定归属客户（支持传入 customer_id 覆盖）
+        final_customer_id = customer_id or transcription.customer_id
+        if not final_customer_id:
+            raise HTTPException(status_code=400, detail="未指定客户，无法确认转写内容")
+        
+        # 验证权限
+        customer = await self._verify_customer_access(user_id, final_customer_id)
         if not customer:
-            raise HTTPException(status_code=403, detail="无权访问此转写任务")
+            raise HTTPException(status_code=403, detail="无权访问此客户")
         
         # 3. 严格状态校验
         if transcription.status == "confirmed":
@@ -386,12 +401,12 @@ class TranscriptionService:
         elif transcription.status != "transcribed":
             raise HTTPException(status_code=400, detail=f"当前状态不支持确认: {transcription.status}")
         
-        # 4. 复用 RecordService 创建 record
+        # 4. 复用 RecordService 创建 record（使用 final_customer_id）
         record_service = RecordService(self.session)
         record_id, error = await record_service.create_record(
             user_id=user_id,
             data=RecordCreate(
-                customer_id=transcription.customer_id,
+                customer_id=final_customer_id,
                 content=content.strip(),
             )
         )
@@ -446,10 +461,49 @@ class TranscriptionService:
         
         return TranscriptionListResponse(items=items, total=len(items))
     
+    async def get_transcription(
+        self, user_id: str, transcription_id: str
+    ) -> Optional[TranscriptionDetail]:
+        """
+        获取转写任务详情（用于前端轮询）
+        
+        支持首页草稿流程（customer_id 可能为空）
+        """
+        # 1. 查询转写任务
+        query = select(Transcription).where(Transcription.id == transcription_id)
+        result = await self.session.execute(query)
+        transcription = result.scalar_one_or_none()
+        
+        if not transcription:
+            return None
+        
+        # 2. 如果有 customer_id，验证权限
+        if transcription.customer_id:
+            customer = await self._verify_customer_access(user_id, transcription.customer_id)
+            if not customer:
+                return None
+        # 3. 如果没有 customer_id，允许访问（首页草稿流程）
+        # 注意：这里假设知道 transcription_id 就有权限，因为 id 是随机的
+        
+        return TranscriptionDetail(
+            id=transcription.id,
+            customer_id=transcription.customer_id or "",
+            original_name=transcription.original_name,
+            file_name=transcription.file_name,
+            file_path=transcription.file_path,
+            file_size=transcription.file_size,
+            status=transcription.status,
+            transcript_text=transcription.transcript_text,
+            error_message=transcription.error_message,
+            record_id=transcription.record_id,
+            created_at=transcription.created_at,
+            updated_at=transcription.updated_at,
+        )
+    
     async def get_transcription_detail(
         self, user_id: str, transcription_id: str
     ) -> Tuple[Optional[Transcription], Optional[str]]:
-        """获取转写任务详情"""
+        """获取转写任务详情（包含验证）"""
         query = select(Transcription, Customer).join(
             Customer,
             and_(

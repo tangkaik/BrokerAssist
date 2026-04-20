@@ -32,11 +32,22 @@ class KimiMessage:
 class KimiClient:
     """
     Kimi API 客户端
-    
+
     使用方法:
         client = KimiClient()
         response = await client.chat("你好")
+        await client.close()
+
+    或使用上下文管理器:
+        async with KimiClient() as client:
+            response = await client.chat("你好")
     """
+
+    async def __aenter__(self) -> "KimiClient":
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+        await self.close()
     
     def __init__(
         self,
@@ -71,7 +82,7 @@ class KimiClient:
     
     async def chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
@@ -109,7 +120,16 @@ class KimiClient:
             response.raise_for_status()
             return response.json()
         except httpx.HTTPError as e:
-            logger.error(f"Kimi API request failed: {e}")
+            response = getattr(e, "response", None)
+            if response is not None:
+              logger.error(
+                  "Kimi API request failed: %s | status=%s | body=%s",
+                  e,
+                  response.status_code,
+                  response.text,
+              )
+            else:
+              logger.error(f"Kimi API request failed: {e}")
             raise
     
     async def chat_simple(
@@ -145,7 +165,7 @@ class KimiClient:
     
     async def stream_chat(
         self,
-        messages: List[Dict[str, str]],
+        messages: List[Dict[str, Any]],
         temperature: float = 0.7,
     ) -> AsyncGenerator[str, None]:
         """
@@ -200,6 +220,20 @@ class KimiClient:
     async def close(self) -> None:
         """关闭客户端连接"""
         await self.client.aclose()
+
+    def __del__(self) -> None:
+        """同步析构，确保客户端被关闭"""
+        if hasattr(self, 'client') and self.client.is_closed:
+            # 同步版本尝试关闭（仅用于异常情况）
+            try:
+                import asyncio
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self.client.aclose())
+                else:
+                    loop.run_until_complete(self.client.aclose())
+            except Exception:
+                pass
 
 
 # 全局客户端实例（可选）

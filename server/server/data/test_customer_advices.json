@@ -1,0 +1,9 @@
+{
+  "default-user": {
+    "customer-123": {
+      "customer_id": "customer-123",
+      "advice_text": "这是测试拜访建议",
+      "updated_at": "2026-04-15T04:28:53.614246"
+    }
+  }
+}

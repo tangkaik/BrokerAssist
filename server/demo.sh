@@ -3,7 +3,7 @@ set -euo pipefail
 
 # 端到端演示：customer → record → summary → chat → advice
 
-BASE_URL="http://127.0.0.1:8000/api/v1"
+BASE_URL="http://127.0.0.1:8001/api/v1"
 
 echo "1. 创建客户..."
 CUSTOMER=$(curl -s -X POST "$BASE_URL/customers" \

@@ -34,8 +34,9 @@ class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="客户姓名")
     phone: Optional[str] = Field(None, max_length=50, description="客户电话")
     gender: Optional[str] = Field(None, max_length=20, description="客户性别")
+    location: Optional[str] = Field(None, max_length=255, description="客户地址")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
-    
+
     @field_validator("tags")
     @classmethod
     def validate_tags(cls, v: List[str]) -> List[str]:
@@ -67,6 +68,10 @@ class CustomerListItem(BaseModel):
     id: str = Field(..., description="客户ID")
     name: str = Field(..., description="客户姓名")
     phone: Optional[str] = Field(None, description="客户电话")
+    location_raw: Optional[str] = Field(None, description="原始地址")
+    location_city: Optional[str] = Field(None, description="城市")
+    location_district: Optional[str] = Field(None, description="区")
+    location_subarea: Optional[str] = Field(None, description="片区")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
     updated_at: datetime = Field(..., description="更新时间")
     
@@ -83,7 +88,12 @@ class CustomerDetail(BaseModel):
     name: str = Field(..., description="客户姓名")
     phone: Optional[str] = Field(None, description="客户电话")
     gender: Optional[str] = Field(None, description="客户性别")
+    location_raw: Optional[str] = Field(None, description="原始地址")
+    location_city: Optional[str] = Field(None, description="城市")
+    location_district: Optional[str] = Field(None, description="区")
+    location_subarea: Optional[str] = Field(None, description="片区")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
+    summary_text: Optional[str] = Field(None, description="客户画像摘要")
     summary_status: str = Field(..., description="总结状态")
     created_at: datetime = Field(..., description="创建时间")
     updated_at: datetime = Field(..., description="更新时间")
@@ -107,12 +117,21 @@ class CustomerListResponse(BaseModel):
 
 class CustomerUpdate(BaseModel):
     """
-    更新客户请求（预留，本轮不使用）
+    更新客户请求
     """
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=50)
     gender: Optional[str] = Field(None, max_length=20)
+    location: Optional[str] = Field(None, max_length=255)
     tags: Optional[List[str]] = Field(None)
+
+    @field_validator("tags")
+    @classmethod
+    def validate_tags(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        """确保 tags 是字符串列表"""
+        if v is None:
+            return None
+        return [str(tag).strip() for tag in v if tag and str(tag).strip()]
 
 
 class SummaryGenerateResponse(BaseModel):
@@ -158,3 +177,4 @@ class AdviceGenerateResponse(BaseModel):
     """
     customer_id: str = Field(..., description="客户ID")
     advice_text: str = Field(..., description="跟进建议")
+    updated_at: Optional[datetime] = Field(None, description="建议保存时间")

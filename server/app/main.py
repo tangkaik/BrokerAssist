@@ -5,10 +5,12 @@ AI 保险经纪人助手后端服务
 """
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api import register_routers
 from app.core.config import settings
@@ -78,7 +80,7 @@ def create_application() -> FastAPI:
     # MVP 阶段允许所有来源，生产环境应限制具体域名
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],  # TODO: 生产环境配置具体域名
+        allow_origins=settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -86,6 +88,10 @@ def create_application() -> FastAPI:
     
     # 注册所有路由
     register_routers(app)
+
+    media_root = Path(__file__).resolve().parents[1] / "data"
+    media_root.mkdir(parents=True, exist_ok=True)
+    app.mount("/media", StaticFiles(directory=media_root), name="media")
     
     # 全局异常处理器
     @app.exception_handler(HTTPException)

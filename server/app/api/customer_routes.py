@@ -23,6 +23,7 @@ from app.schemas.customer import (
     CustomerIdResponse,
     CustomerDetail,
     CustomerListResponse,
+    CustomerUpdate,
     CustomerChatRequest,
     CustomerChatResponse,
     AdviceGenerateResponse,
@@ -83,17 +84,21 @@ async def create_customer(
 )
 async def get_customer_list(
     keyword: Optional[str] = Query(None, description="搜索关键词（按姓名模糊匹配）"),
+    sort_by: Optional[str] = Query("updated_at", description="排序字段（name, updated_at, created_at）"),
+    sort_order: Optional[str] = Query("desc", description="排序方向（asc, desc）"),
     user_id: str = Depends(get_current_user_id),
     service: CustomerService = Depends(get_customer_service),
 ):
     """
     获取客户列表
     
-    返回当前用户的所有未删除客户，支持按姓名模糊搜索
+    返回当前用户的所有未删除客户，支持按姓名模糊搜索和多种排序方式
     """
     result = await service.get_customer_list(
         user_id=user_id,
         keyword=keyword,
+        sort_by=sort_by,
+        sort_order=sort_order,
     )
     
     return success_response(data=result)
@@ -123,6 +128,31 @@ async def get_customer_detail(
     if not customer:
         return not_found_error("客户", customer_id)
     
+    return success_response(data=customer)
+
+
+@router.put(
+    "/{customer_id}",
+    summary="更新客户",
+    description="更新客户的基础资料",
+    response_description="更新后的客户详情",
+)
+async def update_customer(
+    customer_id: str,
+    data: CustomerUpdate,
+    user_id: str = Depends(get_current_user_id),
+    service: CustomerService = Depends(get_customer_service),
+):
+    """更新客户基础资料"""
+    customer = await service.update_customer(
+        user_id=user_id,
+        customer_id=customer_id,
+        data=data,
+    )
+
+    if not customer:
+        return not_found_error("客户", customer_id)
+
     return success_response(data=customer)
 
 
@@ -246,4 +276,24 @@ async def generate_advice(
         customer_id=customer_id,
     )
     
+    return success_response(data=result)
+
+
+@router.get(
+    "/{customer_id}/advice",
+    summary="获取已保存的跟进建议",
+    description="读取该客户最近一次生成并保存的跟进建议（JSON 文件存储）",
+    response_description="已保存的建议",
+)
+async def get_saved_advice(
+    customer_id: str,
+    user_id: str = Depends(get_current_user_id),
+    service: CustomerService = Depends(get_customer_service),
+):
+    """获取已保存的跟进建议"""
+    result = await service.get_saved_advice(
+        user_id=user_id,
+        customer_id=customer_id,
+    )
+
     return success_response(data=result)

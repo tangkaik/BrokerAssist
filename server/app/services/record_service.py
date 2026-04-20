@@ -3,12 +3,12 @@
 
 封装沟通记录相关的所有业务逻辑：
 - 创建记录
+- 创建带图片的记录
 - 查询客户记录列表
 - 删除记录
 - 关联更新客户 summary_status
 """
 import uuid
-from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import select, and_, desc
@@ -16,7 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.record import Record
 from app.models.customer import Customer
-from app.schemas.record import RecordCreate, RecordItem, RecordListResponse
+from app.schemas.record import (
+    RecordCreate,
+    RecordListResponse,
+    RecordItem,
+)
+from app.services.location_normalizer import LocationNormalizer
+from app.services.record_media_service import RecordMediaService
 
 
 class RecordService:
@@ -34,6 +40,8 @@ class RecordService:
             session: 数据库会话
         """
         self.session = session
+        self.media_service = RecordMediaService()
+        self.location_normalizer = LocationNormalizer()
     
     async def _update_customer_summary_status(
         self,
@@ -107,6 +115,7 @@ class RecordService:
         
         # 生成 UUID
         record_id = str(uuid.uuid4())
+        location = await self.location_normalizer.normalize(data.location_raw)
         
         # 创建记录实体
         record = Record(
@@ -114,6 +123,10 @@ class RecordService:
             customer_id=data.customer_id,
             content=data.content.strip(),
             type="text",
+            location_raw=location["location_raw"],
+            location_city=location["location_city"],
+            location_district=location["location_district"],
+            location_subarea=location["location_subarea"],
         )
         
         self.session.add(record)
@@ -123,6 +136,34 @@ class RecordService:
         
         await self.session.flush()
         
+        return record_id, None
+
+    async def create_record_with_images(
+        self,
+        *,
+        user_id: str,
+        customer_id: str,
+        content: str,
+        location_raw: str | None,
+        images: list[tuple[str, bytes, Optional[str]]],
+    ) -> tuple[Optional[str], Optional[str]]:
+        """创建带图片的记录"""
+        record_id, error = await self.create_record(
+            user_id=user_id,
+            data=RecordCreate(customer_id=customer_id, content=content, location_raw=location_raw),
+        )
+
+        if error or not record_id:
+            return None, error
+
+        if images:
+            self.media_service.save_images(
+                user_id=user_id,
+                customer_id=customer_id,
+                record_id=record_id,
+                files=images,
+            )
+
         return record_id, None
     
     async def get_customer_records(
@@ -169,16 +210,7 @@ class RecordService:
         records = result.scalars().all()
         
         # 转换为响应 Schema
-        items = [
-            RecordItem(
-                id=r.id,
-                customer_id=r.customer_id,
-                content=r.content,
-                type=r.type,
-                created_at=r.created_at,
-            )
-            for r in records
-        ]
+        items = [self.media_service.build_record_item(record) for record in records]
         
         return RecordListResponse(
             items=items,
@@ -221,7 +253,8 @@ class RecordService:
             return False, "记录不存在或无权访问"
         
         record, customer = row
-        
+
+        self.media_service.delete_record_assets(record_id)
         # 删除记录
         await self.session.delete(record)
         
@@ -231,3 +264,83 @@ class RecordService:
         await self.session.flush()
         
         return True, None
+
+    async def update_record_with_images(
+        self,
+        *,
+        user_id: str,
+        record_id: str,
+        content: str,
+        location_raw: str | None,
+        keep_image_urls: list[str],
+        new_images: list[tuple[str, bytes, Optional[str]]],
+    ) -> tuple[Optional[RecordItem], Optional[str]]:
+        """更新记录内容，并同步处理图片增删"""
+        query = select(Record, Customer).join(
+            Customer,
+            and_(
+                Record.customer_id == Customer.id,
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None)
+            )
+        ).where(
+            Record.id == record_id
+        )
+
+        result = await self.session.execute(query)
+        row = result.one_or_none()
+
+        if not row:
+            return None, "记录不存在或无权访问"
+
+        record, customer = row
+        location = await self.location_normalizer.normalize(location_raw)
+        record.content = content.strip()
+        record.location_raw = location["location_raw"]
+        record.location_city = location["location_city"]
+        record.location_district = location["location_district"]
+        record.location_subarea = location["location_subarea"]
+        customer.summary_status = "stale"
+
+        images = self.media_service.replace_images(
+            user_id=user_id,
+            customer_id=record.customer_id,
+            record_id=record_id,
+            keep_urls=keep_image_urls,
+            new_files=new_images,
+        )
+
+        await self.session.flush()
+
+        return self.media_service.build_record_item(record, images=images), None
+
+    async def analyze_record_image(
+        self,
+        *,
+        user_id: str,
+        record_id: str,
+        image_url: str,
+        analyze_modes: list[str] | None = None,
+    ) -> tuple[dict | None, str | None]:
+        query = select(Record, Customer).join(
+            Customer,
+            and_(
+                Record.customer_id == Customer.id,
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None)
+            )
+        ).where(
+            Record.id == record_id
+        )
+
+        result = await self.session.execute(query)
+        row = result.one_or_none()
+        if not row:
+            return None, "记录不存在或无权访问"
+
+        record, _customer = row
+        return await self.media_service.analyze_record_image(
+            record_id=record.id,
+            image_url=image_url,
+            analyze_modes=analyze_modes,
+        )

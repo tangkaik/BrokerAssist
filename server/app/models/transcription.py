@@ -34,13 +34,13 @@ class Transcription(Base):
         comment="转写任务ID (UUID)"
     )
     
-    # 关联客户 - 外键
-    customer_id: Mapped[str] = mapped_column(
+    # 关联客户 - 外键 (可为空，首页草稿流程)
+    customer_id: Mapped[Optional[str]] = mapped_column(
         String(36),
-        ForeignKey("customers.id", ondelete="CASCADE"),
-        nullable=False,
+        ForeignKey("customers.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
-        comment="所属客户ID"
+        comment="所属客户ID (可为空)"
     )
     
     # 文件信息
@@ -119,7 +119,7 @@ class Transcription(Base):
     )
     
     # 关联关系
-    customer: Mapped["Customer"] = relationship("Customer", back_populates="transcriptions")
+    customer: Mapped[Optional["Customer"]] = relationship("Customer", back_populates="transcriptions")
     
     def __repr__(self) -> str:
         return f"<Transcription(id={self.id}, customer_id={self.customer_id}, status={self.status})>"

@@ -18,8 +18,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.customer import Customer
 from app.models.record import Record
-from app.schemas.customer import CustomerCreate, CustomerListItem, CustomerDetail, CustomerListResponse, SummaryGenerateResponse, CustomerChatResponse, AdviceGenerateResponse
+from app.schemas.customer import CustomerCreate, CustomerListItem, CustomerDetail, CustomerListResponse, SummaryGenerateResponse, CustomerChatResponse, AdviceGenerateResponse, CustomerUpdate
 from app.ai.kimi_client import KimiClient
+from app.core.prompts import (
+    customer_summary as _customer_summary_prompt,
+    customer_summary_system as _customer_summary_system,
+    customer_chat as _customer_chat_prompt,
+    customer_chat_system as _customer_chat_system,
+    advice as _advice_prompt,
+    advice_system as _advice_system,
+)
+from app.services.customer_advice_store import CustomerAdviceStore
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +48,7 @@ class CustomerService:
             session: 数据库会话
         """
         self.session = session
+        self.advice_store = CustomerAdviceStore()
     
     async def create_customer(
         self,
@@ -57,7 +67,13 @@ class CustomerService:
         """
         # 生成 UUID
         customer_id = str(uuid.uuid4())
-        
+
+        # 识别地址结构化
+        location_normalized = {"location_raw": None, "location_city": None, "location_district": None, "location_subarea": None}
+        if data.location:
+            from app.services.location_normalizer import LocationNormalizer
+            location_normalized = await LocationNormalizer().normalize(data.location)
+
         # 创建客户实体
         customer = Customer(
             id=customer_id,
@@ -65,6 +81,10 @@ class CustomerService:
             name=data.name.strip(),
             phone=data.phone.strip() if data.phone else None,
             gender=data.gender.strip() if data.gender else None,
+            location_raw=location_normalized.get("location_raw"),
+            location_city=location_normalized.get("location_city"),
+            location_district=location_normalized.get("location_district"),
+            location_subarea=location_normalized.get("location_subarea"),
             tags=data.tags if data.tags else [],
             summary_status="stale",
             deleted_at=None,
@@ -79,6 +99,8 @@ class CustomerService:
         self,
         user_id: str,
         keyword: Optional[str] = None,
+        sort_by: Optional[str] = "updated_at",
+        sort_order: Optional[str] = "desc",
     ) -> CustomerListResponse:
         """
         获取客户列表
@@ -86,10 +108,14 @@ class CustomerService:
         Args:
             user_id: 当前用户ID
             keyword: 搜索关键词（按姓名模糊匹配）
+            sort_by: 排序字段（name, updated_at, created_at）
+            sort_order: 排序方向（asc, desc）
             
         Returns:
             客户列表响应
         """
+        from sqlalchemy import asc, desc as desc_order
+        
         # 构建基础查询：未删除 + 属于当前用户
         query = select(Customer).where(
             and_(
@@ -98,15 +124,29 @@ class CustomerService:
             )
         )
         
-        # 如果有搜索关键词，添加姓名模糊匹配
+        # 如果有搜索关键词，添加姓名或标签模糊匹配
         if keyword and keyword.strip():
             keyword_clean = keyword.strip()
+            from sqlalchemy import or_
+            # 使用参数化查询避免 SQL 注入（通过 ilike 操作符）
+            search_pattern = f"%{keyword_clean}%"
             query = query.where(
-                Customer.name.ilike(f"%{keyword_clean}%")
+                or_(
+                    Customer.name.ilike(search_pattern),
+                    # JSON array contains 元素匹配（PostgreSQL jsonb）
+                    Customer.tags.contains([keyword_clean])
+                )
             )
         
-        # 按更新时间倒序
-        query = query.order_by(Customer.updated_at.desc())
+        # 排序
+        order_func = desc_order if sort_order == "desc" else asc
+        if sort_by == "name":
+            query = query.order_by(order_func(Customer.name))
+        elif sort_by == "created_at":
+            query = query.order_by(order_func(Customer.created_at))
+        else:
+            # 默认按更新时间
+            query = query.order_by(order_func(Customer.updated_at))
         
         # 执行查询
         result = await self.session.execute(query)
@@ -163,7 +203,12 @@ class CustomerService:
             name=customer.name,
             phone=customer.phone,
             gender=customer.gender,
+            location_raw=customer.location_raw,
+            location_city=customer.location_city,
+            location_district=customer.location_district,
+            location_subarea=customer.location_subarea,
             tags=customer.tags,
+            summary_text=customer.summary_text,
             summary_status=customer.summary_status,
             created_at=customer.created_at,
             updated_at=customer.updated_at,
@@ -204,6 +249,62 @@ class CustomerService:
         await self.session.flush()
         
         return True
+
+    async def update_customer(
+        self,
+        user_id: str,
+        customer_id: str,
+        data: CustomerUpdate,
+    ) -> Optional[CustomerDetail]:
+        """更新客户资料"""
+        query = select(Customer).where(
+            and_(
+                Customer.id == customer_id,
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None)
+            )
+        )
+
+        result = await self.session.execute(query)
+        customer = result.scalar_one_or_none()
+
+        if not customer:
+            return None
+
+        if data.name is not None:
+            customer.name = data.name.strip()
+        if data.phone is not None:
+            customer.phone = data.phone.strip() or None
+        if data.gender is not None:
+            customer.gender = data.gender.strip() or None
+        if data.tags is not None:
+            customer.tags = data.tags
+        if data.location is not None:
+            from app.services.location_normalizer import LocationNormalizer
+            normalized = await LocationNormalizer().normalize(data.location)
+            customer.location_raw = normalized.get("location_raw")
+            customer.location_city = normalized.get("location_city")
+            customer.location_district = normalized.get("location_district")
+            customer.location_subarea = normalized.get("location_subarea")
+
+        customer.updated_at = datetime.utcnow()
+        await self.session.flush()
+
+        return CustomerDetail(
+            id=customer.id,
+            name=customer.name,
+            phone=customer.phone,
+            gender=customer.gender,
+            location_raw=customer.location_raw,
+            location_city=customer.location_city,
+            location_district=customer.location_district,
+            location_subarea=customer.location_subarea,
+            tags=customer.tags,
+            summary_text=customer.summary_text,
+            summary_status=customer.summary_status,
+            created_at=customer.created_at,
+            updated_at=customer.updated_at,
+        )
     
     async def generate_summary(
         self,
@@ -286,56 +387,21 @@ class CustomerService:
         logger.info(f"[Summary] Customer {customer_id} status -> updating, records: {len(records)}")
         
         # 6. 调用 LLM 生成摘要
+        prompt = _customer_summary_prompt(records_text)
+
         try:
             kimi = KimiClient()
-            
-            prompt = f"""你是一位资深保险经纪人。请基于以下客户沟通记录，生成一份客户跟进摘要。
+            try:
+                response = await kimi.chat_simple(
+                    prompt=prompt,
+                    system_prompt=_customer_summary_system(),
+                )
+            finally:
+                await kimi.close()
 
-沟通记录（按时间顺序）：
-{records_text}
-
-【核心任务】
-从沟通记录中提取**客户明确提到的**信息，生成摘要。
-
-【输出格式】
-只输出以下两类内容：
-
-1. 有明确信息的维度（从以下列表中挑选有信息的输出，无信息的维度**完全不提**）：
-   - 客户基本情况：年龄、职业、所在城市等
-   - 家庭情况：婚姻、子女、家庭成员等
-   - 明确表达的保险需求或意向
-   - 顾虑点/异议：担忧、犹豫、明确拒绝的点
-   - 已有保单/保障情况
-   - 待跟进的具体事项
-
-2. 必须包含的固定部分：
-   【当前缺失信息】：为了更好服务客户，还需要了解哪些信息
-
-【绝对约束 - 违反会导致错误】
-1. **严禁编造**：如果记录中没有明确提到客户年龄、城市、家庭情况、保险需求等信息，**绝对不要编造**
-2. **识别噪音**：如果记录只有"确认转写"、"测试"等系统操作文本，说明**没有实质性沟通内容**
-3. **无实质内容时**：直接只输出【当前缺失信息】部分，说明需要收集哪些信息，其他部分**完全省略**
-4. 不要把系统操作、转写确认、测试行为当作客户需求来总结
-
-【示例】
-场景A - 有实质沟通：
-记录："客户说我今年35岁，想了解重疾险"
-输出：客户基本情况：35岁\n明确表达的保险需求：想了解重疾险\n【当前缺失信息】：职业、家庭情况、预算等
-
-场景B - 无实质沟通（只有系统操作）：
-记录："确认转写文本"、"测试录音"
-输出：\n【当前缺失信息】：客户基本情况、家庭情况、保险需求、已有保障等所有信息均需收集
-
-请生成客户跟进摘要："""
-            
-            response = await kimi.chat_simple(
-                prompt=prompt,
-                system_prompt="你是一位资深保险经纪人，擅长从沟通记录中提炼客户洞察，识别真实业务信息而非流程操作。"
-            )
-            
             if not response or not response.strip():
                 raise ValueError("LLM 返回空摘要")
-            
+
             summary_text = response.strip()
             
         except Exception as e:
@@ -426,32 +492,22 @@ class CustomerService:
         ])
         
         # 5. 组装 Prompt
-        prompt = f"""你是一位保险经纪人助手。请基于以下客户信息回答问题。
+        prompt = _customer_chat_prompt(
+            customer_summary_text=customer.summary_text,
+            recent_records_text=records_text,
+            question=question,
+        )
 
-【客户摘要】
-{customer.summary_text}
-
-【最近沟通记录】
-{records_text}
-
-【用户问题】
-{question}
-
-约束：
-1. 只能基于上述信息回答
-2. 如果信息不足，明确说"当前记录中没有足够信息回答此问题"
-3. 不要猜测、不要编造记录中没有的内容
-4. 回答简洁，控制在200字以内
-
-请回答："""
-        
         # 6. 调用 Kimi 生成回答
         try:
             kimi = KimiClient()
-            answer = await kimi.chat_simple(
-                prompt=prompt,
-                system_prompt="你是一个保险经纪人助手，擅长基于客户信息回答问题。"
-            )
+            try:
+                answer = await kimi.chat_simple(
+                    prompt=prompt,
+                    system_prompt=_customer_chat_system(),
+                )
+            finally:
+                await kimi.close()
             
             # 校验返回内容
             if not answer or not answer.strip():
@@ -528,53 +584,22 @@ class CustomerService:
             for r in reversed(records)
         ])
         
-        # 5. 组装 Prompt（优化版，收紧边界）
-        prompt = f"""你是一位资深保险经纪人。请基于以下客户信息，给出跟进建议。
+        # 5. 组装 Prompt
+        prompt = _advice_prompt(
+            customer_summary_text=customer.summary_text,
+            recent_records_text=records_text,
+        )
 
-【客户摘要】
-{customer.summary_text}
-
-【最近沟通记录】
-{records_text}
-
-【角色边界 - 严格遵守】
-- 你是"跟进助手"，不是"产品推荐助手"
-- 你的任务是告诉经纪人"怎么跟进客户"，不是告诉客户"买什么产品"
-- 禁止输出具体产品名称、保额、保费数字、产品组合方案
-- 禁止替客户决定买什么
-
-【输出格式 - 三部分】
-
-**当前已知情况**（最多3点，只保留对跟进决策关键的信息）：
-- 不要复述所有基础信息
-- 只提炼影响下一步跟进策略的关键洞察
-
-**建议下一步动作**（最多3条，具体可执行）：
-- 格式：【谁】+【做什么】+【目标】
-- 时间描述：如果记录中无明确时间，使用"下次沟通时"或省略，不要编造具体时间
-- 优先原则：如果信息不足以支持成交建议，优先给出"先补什么信息"的动作
-- 示例：
-  * 【经纪人】询问客户【体检报告的具体异常项目】，目标是【判断投保可行性】
-  * 【经纪人】准备【家庭收支表】与客户梳理，目标是【明确可接受保费范围】
-
-**当前仍缺失的信息**（最多2-3项，按优先级排序）：
-- 只列对成交影响最大的关键信息
-- 如果信息严重不足，优先说明需要补充什么信息，而非强行推进
-
-【约束】
-- 整体控制在250字以内
-- 禁止说"建议购买XX产品""建议选择XX保额"
-- 聚焦"如何推进下一步沟通"而非"成交方案"
-
-请输出跟进建议："""
-        
         # 6. 调用 Kimi 生成建议
         try:
             kimi = KimiClient()
-            advice = await kimi.chat_simple(
-                prompt=prompt,
-                system_prompt="你是一位资深保险经纪人，擅长基于客户信息给出结构化跟进建议。"
-            )
+            try:
+                advice = await kimi.chat_simple(
+                    prompt=prompt,
+                    system_prompt=_advice_system(),
+                )
+            finally:
+                await kimi.close()
             
             # 校验返回内容
             if not advice or not advice.strip():
@@ -588,7 +613,49 @@ class CustomerService:
         
         logger.info(f"[Advice] Customer {customer_id} advice generated, length: {len(advice)}")
         
+        saved = self.advice_store.save_advice(
+            user_id=user_id,
+            customer_id=customer_id,
+            advice_text=advice.strip(),
+        )
+
         return AdviceGenerateResponse(
             customer_id=customer_id,
             advice_text=advice.strip(),
+            updated_at=datetime.fromisoformat(saved["updated_at"]),
+        )
+
+    async def get_saved_advice(
+        self,
+        user_id: str,
+        customer_id: str,
+    ) -> Optional[AdviceGenerateResponse]:
+        """读取已保存的拜访建议"""
+        from fastapi import HTTPException
+
+        query = select(Customer).where(
+            and_(
+                Customer.id == customer_id,
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None)
+            )
+        )
+        result = await self.session.execute(query)
+        customer = result.scalar_one_or_none()
+
+        if not customer:
+            raise HTTPException(status_code=404, detail="客户不存在或无权访问")
+
+        saved = self.advice_store.get_advice(user_id=user_id, customer_id=customer_id)
+        if not saved:
+            return None
+
+        updated_at = None
+        if saved.get("updated_at"):
+            updated_at = datetime.fromisoformat(saved["updated_at"])
+
+        return AdviceGenerateResponse(
+            customer_id=customer_id,
+            advice_text=saved.get("advice_text", ""),
+            updated_at=updated_at,
         )

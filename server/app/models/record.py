@@ -45,6 +45,31 @@ class Record(Base):
         nullable=False,
         comment="沟通内容（原始文本）"
     )
+
+    # 地点线索（用户原始输入 + 后台归一化结果）
+    location_raw: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="原始地点线索"
+    )
+
+    location_city: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="归一化城市"
+    )
+
+    location_district: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="归一化城区"
+    )
+
+    location_subarea: Mapped[str | None] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="归一化街道/片区"
+    )
     
     # 记录类型
     type: Mapped[str] = mapped_column(

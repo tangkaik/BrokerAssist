@@ -10,7 +10,7 @@ from datetime import datetime
 
 import httpx
 
-BASE_URL = "http://127.0.0.1:8000/api/v1"
+BASE_URL = "http://127.0.0.1:8001/api/v1"
 
 # 8组完整样本数据
 SAMPLES = [
