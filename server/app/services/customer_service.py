@@ -101,6 +101,8 @@ class CustomerService:
         keyword: Optional[str] = None,
         sort_by: Optional[str] = "updated_at",
         sort_order: Optional[str] = "desc",
+        page: int = 1,
+        page_size: int = 20,
     ) -> CustomerListResponse:
         """
         获取客户列表
@@ -148,8 +150,14 @@ class CustomerService:
             # 默认按更新时间
             query = query.order_by(order_func(Customer.updated_at))
         
-        # 执行查询
-        result = await self.session.execute(query)
+        count_query = select(func.count()).select_from(query.subquery())
+        count_result = await self.session.execute(count_query)
+        total = count_result.scalar() or 0
+
+        offset = max(page - 1, 0) * page_size
+        paged_query = query.offset(offset).limit(page_size)
+
+        result = await self.session.execute(paged_query)
         customers = result.scalars().all()
         
         # 转换为响应 Schema
@@ -166,7 +174,9 @@ class CustomerService:
         
         return CustomerListResponse(
             items=items,
-            total=len(items),
+            total=total,
+            page=page,
+            page_size=page_size,
         )
     
     async def get_customer_detail(
@@ -613,7 +623,7 @@ class CustomerService:
         
         logger.info(f"[Advice] Customer {customer_id} advice generated, length: {len(advice)}")
         
-        saved = self.advice_store.save_advice(
+        saved = await self.advice_store.save_advice(
             user_id=user_id,
             customer_id=customer_id,
             advice_text=advice.strip(),
@@ -646,7 +656,7 @@ class CustomerService:
         if not customer:
             raise HTTPException(status_code=404, detail="客户不存在或无权访问")
 
-        saved = self.advice_store.get_advice(user_id=user_id, customer_id=customer_id)
+        saved = await self.advice_store.get_advice(user_id=user_id, customer_id=customer_id)
         if not saved:
             return None
 

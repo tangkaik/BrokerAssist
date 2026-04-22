@@ -4,6 +4,7 @@
 使用 Pydantic Settings 从环境变量加载配置
 """
 from functools import lru_cache
+import secrets
 from typing import Optional
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -62,6 +63,11 @@ class Settings(BaseSettings):
     default_test_name: str = "测试账号"
     auth_secret_key: str = "brokerassist-dev-secret-change-me"
     auth_token_expire_days: int = 30
+
+    # 上传限制
+    max_upload_image_count: int = 6
+    max_upload_image_bytes: int = 10 * 1024 * 1024
+    allowed_image_content_types: str = "image/jpeg,image/png,image/webp,image/heic,image/heif"
     
     # 日志配置
     log_level: str = "INFO"
@@ -82,6 +88,30 @@ class Settings(BaseSettings):
             for origin in self.cors_allow_origins.split(",")
             if origin.strip()
         ] or ["*"]
+
+    @property
+    def cors_allow_credentials(self) -> bool:
+        """当 CORS 为 * 时禁止 credentials，避免浏览器侧无效配置。"""
+        return self.cors_origins != ["*"]
+
+    @property
+    def allowed_image_types(self) -> set[str]:
+        return {
+            item.strip().lower()
+            for item in self.allowed_image_content_types.split(",")
+            if item.strip()
+        }
+
+    @property
+    def supported_image_types(self) -> set[str]:
+        """内置支持的图片类型，避免单纯依赖环境变量导致误拦截。"""
+        return {
+            "image/jpeg",
+            "image/png",
+            "image/webp",
+            "image/heic",
+            "image/heif",
+        }
     
     def validate(self) -> None:
         """启动时检查必填配置"""
@@ -92,6 +122,21 @@ class Settings(BaseSettings):
         
         if not self.kimi_api_key:
             errors.append("KIMI_API_KEY 必须配置（Kimi AI API 密钥）")
+
+        if self.is_production and self.auth_secret_key == "brokerassist-dev-secret-change-me":
+            errors.append("生产环境必须配置 AUTH_SECRET_KEY，不能使用默认开发密钥")
+
+        if self.is_production and len(self.auth_secret_key) < 32:
+            errors.append("生产环境的 AUTH_SECRET_KEY 至少需要 32 个字符")
+
+        if self.is_production and self.cors_origins == ["*"]:
+            errors.append("生产环境必须配置明确的 CORS_ALLOW_ORIGINS，不能使用 *")
+
+        if self.max_upload_image_count < 1:
+            errors.append("MAX_UPLOAD_IMAGE_COUNT 必须大于 0")
+
+        if self.max_upload_image_bytes < 1024:
+            errors.append("MAX_UPLOAD_IMAGE_BYTES 必须至少为 1024")
         
         if errors:
             raise ValueError("配置错误:\n" + "\n".join(f"  - {e}" for e in errors))
@@ -109,3 +154,8 @@ def get_settings() -> Settings:
 
 # 导出配置实例
 settings = get_settings()
+
+
+def generate_secret_key(length: int = 48) -> str:
+    """生成可用于 AUTH_SECRET_KEY 的随机密钥。"""
+    return secrets.token_urlsafe(length)

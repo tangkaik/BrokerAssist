@@ -4,14 +4,18 @@ AI 全局问答路由
 提供全局业务问答能力，不依赖特定客户。
 路由层只负责接收参数、调用服务、返回统一响应。
 """
+import logging
+
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel, Field
 
 from app.core.dependencies import get_current_user_id
 from app.services.ai_service import AIService
+from app.services.upload_guard import UploadValidationError, read_validated_images
 from app.utils.response import error_response, success_response
 
 router = APIRouter(tags=["ai"])
+logger = logging.getLogger(__name__)
 
 
 def get_ai_service() -> AIService:
@@ -74,7 +78,18 @@ async def ai_chat_with_image(
         )
 
     try:
-        result = await ai_service.ask_image_question(question, image)
+        validated = await read_validated_images([image])
+        result = await ai_service.ask_image_question(
+            question,
+            image,
+            validated_file=validated[0],
+        )
+    except UploadValidationError as error:
+        return error_response(
+            code="INVALID_IMAGE",
+            message=str(error),
+            status_code=400,
+        )
     except ValueError as error:
         return error_response(
             code="INVALID_IMAGE",
@@ -82,6 +97,7 @@ async def ai_chat_with_image(
             status_code=400,
         )
     except Exception:
+        logger.exception("AI image chat failed")
         return error_response(
             code="IMAGE_CHAT_UNAVAILABLE",
             message="图片问答暂时不可用，请稍后再试。",

@@ -86,6 +86,8 @@ async def get_customer_list(
     keyword: Optional[str] = Query(None, description="搜索关键词（按姓名模糊匹配）"),
     sort_by: Optional[str] = Query("updated_at", description="排序字段（name, updated_at, created_at）"),
     sort_order: Optional[str] = Query("desc", description="排序方向（asc, desc）"),
+    page: int = Query(1, ge=1, description="页码"),
+    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     user_id: str = Depends(get_current_user_id),
     service: CustomerService = Depends(get_customer_service),
 ):
@@ -99,6 +101,8 @@ async def get_customer_list(
         keyword=keyword,
         sort_by=sort_by,
         sort_order=sort_order,
+        page=page,
+        page_size=page_size,
     )
     
     return success_response(data=result)

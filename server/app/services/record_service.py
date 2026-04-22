@@ -20,6 +20,7 @@ from app.schemas.record import (
     RecordCreate,
     RecordListResponse,
     RecordItem,
+    RecordUpdate,
 )
 from app.services.location_normalizer import LocationNormalizer
 from app.services.record_media_service import RecordMediaService
@@ -157,7 +158,7 @@ class RecordService:
             return None, error
 
         if images:
-            self.media_service.save_images(
+            await self.media_service.save_images(
                 user_id=user_id,
                 customer_id=customer_id,
                 record_id=record_id,
@@ -210,7 +211,7 @@ class RecordService:
         records = result.scalars().all()
         
         # 转换为响应 Schema
-        items = [self.media_service.build_record_item(record) for record in records]
+        items = [await self.media_service.build_record_item(record) for record in records]
         
         return RecordListResponse(
             items=items,
@@ -254,7 +255,7 @@ class RecordService:
         
         record, customer = row
 
-        self.media_service.delete_record_assets(record_id)
+        await self.media_service.delete_record_assets(record_id)
         # 删除记录
         await self.session.delete(record)
         
@@ -302,7 +303,7 @@ class RecordService:
         record.location_subarea = location["location_subarea"]
         customer.summary_status = "stale"
 
-        images = self.media_service.replace_images(
+        images = await self.media_service.replace_images(
             user_id=user_id,
             customer_id=record.customer_id,
             record_id=record_id,
@@ -312,7 +313,46 @@ class RecordService:
 
         await self.session.flush()
 
-        return self.media_service.build_record_item(record, images=images), None
+        return await self.media_service.build_record_item(record, images=images), None
+
+    async def update_record(
+        self,
+        *,
+        user_id: str,
+        record_id: str,
+        data: RecordUpdate,
+    ) -> tuple[Optional[RecordItem], Optional[str]]:
+        """更新纯文本记录，不涉及图片变更。"""
+        query = select(Record, Customer).join(
+            Customer,
+            and_(
+                Record.customer_id == Customer.id,
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None)
+            )
+        ).where(
+            Record.id == record_id
+        )
+
+        result = await self.session.execute(query)
+        row = result.one_or_none()
+
+        if not row:
+            return None, "记录不存在或无权访问"
+
+        record, customer = row
+        record.content = data.content.strip()
+        if data.location_raw is not None:
+            location = await self.location_normalizer.normalize(data.location_raw)
+            record.location_raw = location["location_raw"]
+            record.location_city = location["location_city"]
+            record.location_district = location["location_district"]
+            record.location_subarea = location["location_subarea"]
+        customer.summary_status = "stale"
+
+        await self.session.flush()
+
+        return await self.media_service.build_record_item(record), None
 
     async def analyze_record_image(
         self,

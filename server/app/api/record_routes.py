@@ -11,6 +11,8 @@
 2. 调用 service
 3. 返回统一响应
 """
+import json
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, UploadFile, File, Form
@@ -21,11 +23,14 @@ from app.schemas.record import (
     RecordCreate,
     RecordIdResponse,
     RecordListResponse,
+    RecordUpdate,
 )
 from app.services.record_service import RecordService
+from app.services.upload_guard import UploadValidationError, read_validated_images
 from app.utils.response import success_response, error_response, not_found_error
 
 router = APIRouter(tags=["records"])
+logger = logging.getLogger(__name__)
 
 
 # ==========================================
@@ -89,21 +94,13 @@ async def create_record_with_images(
     service: RecordService = Depends(get_record_service),
 ):
     """创建带图片的沟通记录"""
-    image_payloads: list[tuple[str, bytes, Optional[str]]] = []
-
-    for image in images:
-        if image.content_type and not image.content_type.startswith("image/"):
-            return error_response(
-                code="INVALID_IMAGE_TYPE",
-                message=f"{image.filename or '文件'} 不是支持的图片格式",
-                status_code=400,
-            )
-        image_payloads.append(
-            (
-                image.filename or "image.jpg",
-                await image.read(),
-                image.content_type,
-            )
+    try:
+        image_payloads = await read_validated_images(images)
+    except UploadValidationError as exc:
+        return error_response(
+            code="INVALID_IMAGE_UPLOAD",
+            message=str(exc),
+            status_code=400,
         )
 
     record_id, error = await service.create_record_with_images(
@@ -124,6 +121,31 @@ async def create_record_with_images(
 
 
 @router.put(
+    "/records/{record_id}",
+    summary="更新纯文本沟通记录",
+    description="更新记录内容与地点线索，不修改图片",
+    response_description="更新后的记录",
+)
+async def update_record(
+    record_id: str,
+    data: RecordUpdate,
+    user_id: str = Depends(get_current_user_id),
+    service: RecordService = Depends(get_record_service),
+):
+    """更新记录文本内容"""
+    record, error = await service.update_record(
+        user_id=user_id,
+        record_id=record_id,
+        data=data,
+    )
+
+    if error:
+        return not_found_error("记录", record_id)
+
+    return success_response(data=record)
+
+
+@router.put(
     "/records/{record_id}/with-images",
     summary="更新沟通记录",
     description="更新记录内容，并支持新增图片和删除已有图片",
@@ -139,21 +161,26 @@ async def update_record_with_images(
     service: RecordService = Depends(get_record_service),
 ):
     """更新记录及其图片"""
-    image_payloads: list[tuple[str, bytes, Optional[str]]] = []
+    normalized_keep_image_urls = keep_image_urls
+    if len(keep_image_urls) == 1:
+        raw_value = keep_image_urls[0].strip()
+        if raw_value.startswith("[") and raw_value.endswith("]"):
+            try:
+                decoded = json.loads(raw_value)
+                if isinstance(decoded, list):
+                    normalized_keep_image_urls = [
+                        item for item in decoded if isinstance(item, str)
+                    ]
+            except json.JSONDecodeError:
+                normalized_keep_image_urls = keep_image_urls
 
-    for image in images:
-        if image.content_type and not image.content_type.startswith("image/"):
-            return error_response(
-                code="INVALID_IMAGE_TYPE",
-                message=f"{image.filename or '文件'} 不是支持的图片格式",
-                status_code=400,
-            )
-        image_payloads.append(
-            (
-                image.filename or "image.jpg",
-                await image.read(),
-                image.content_type,
-            )
+    try:
+        image_payloads = await read_validated_images(images)
+    except UploadValidationError as exc:
+        return error_response(
+            code="INVALID_IMAGE_UPLOAD",
+            message=str(exc),
+            status_code=400,
         )
 
     record, error = await service.update_record_with_images(
@@ -161,7 +188,7 @@ async def update_record_with_images(
         record_id=record_id,
         content=content,
         location_raw=location_raw,
-        keep_image_urls=keep_image_urls,
+        keep_image_urls=normalized_keep_image_urls,
         new_images=image_payloads,
     )
 
@@ -211,12 +238,43 @@ async def analyze_record_image(
     user_id: str = Depends(get_current_user_id),
     service: RecordService = Depends(get_record_service),
 ):
-    payload, error = await service.analyze_record_image(
-        user_id=user_id,
-        record_id=record_id,
-        image_url=image_url,
-        analyze_modes=analyze_modes,
-    )
+    normalized_analyze_modes = analyze_modes
+    if len(analyze_modes) == 1:
+        raw_value = analyze_modes[0].strip()
+        if raw_value.startswith("[") and raw_value.endswith("]"):
+            try:
+                decoded = json.loads(raw_value)
+                if isinstance(decoded, list):
+                    normalized_analyze_modes = [
+                        item for item in decoded if isinstance(item, str)
+                    ]
+            except json.JSONDecodeError:
+                normalized_analyze_modes = analyze_modes
+
+    try:
+        payload, error = await service.analyze_record_image(
+            user_id=user_id,
+            record_id=record_id,
+            image_url=image_url,
+            analyze_modes=normalized_analyze_modes,
+        )
+    except ValueError as exc:
+        return error_response(
+            code="IMAGE_ANALYZE_FAILED",
+            message=str(exc),
+            status_code=400,
+        )
+    except Exception:
+        logger.exception(
+            "Record image analyze failed: record_id=%s image_url=%s",
+            record_id,
+            image_url,
+        )
+        return error_response(
+            code="IMAGE_ANALYZE_UNAVAILABLE",
+            message="图片识别暂时不可用，请稍后再试。",
+            status_code=503,
+        )
 
     if error == "记录不存在或无权访问":
         return not_found_error("记录", record_id)

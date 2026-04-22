@@ -6,6 +6,7 @@ AI 保险经纪人助手后端服务
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
+from pathlib import PurePosixPath
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,6 +22,20 @@ from app.db.session import close_db_connections
 # 初始化统一日志
 setup_logging(settings.log_level)
 logger = logging.getLogger(__name__)
+
+
+class RestrictedMediaFiles(StaticFiles):
+    """只暴露记录图片目录，避免 data 下的 JSON store 被静态访问。"""
+
+    async def get_response(self, path: str, scope):
+        normalized = str(PurePosixPath(path.strip("/")))
+        if (
+            not normalized
+            or normalized == "."
+            or not normalized.startswith("record_images/")
+        ):
+            raise HTTPException(status_code=404, detail="Not Found")
+        return await super().get_response(normalized, scope)
 
 
 @asynccontextmanager
@@ -81,7 +96,7 @@ def create_application() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
-        allow_credentials=True,
+        allow_credentials=settings.cors_allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
     )
@@ -91,7 +106,7 @@ def create_application() -> FastAPI:
 
     media_root = Path(__file__).resolve().parents[1] / "data"
     media_root.mkdir(parents=True, exist_ok=True)
-    app.mount("/media", StaticFiles(directory=media_root), name="media")
+    app.mount("/media", RestrictedMediaFiles(directory=media_root), name="media")
     
     # 全局异常处理器
     @app.exception_handler(HTTPException)

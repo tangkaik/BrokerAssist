@@ -109,6 +109,8 @@ class CustomerListResponse(BaseModel):
     """
     items: List[CustomerListItem] = Field(default_factory=list, description="客户列表")
     total: int = Field(0, description="总数")
+    page: int = Field(1, description="当前页码")
+    page_size: int = Field(20, description="每页数量")
 
 
 # ==========================================

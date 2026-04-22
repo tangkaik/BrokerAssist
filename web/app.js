@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE_URL = "http://127.0.0.1:8001/api/v1";
+const DEFAULT_API_BASE_URL = `${window.location.origin}/api/v1`;
 const STORAGE_KEY = "brokerassist:web:api-base-url";
 const AUTH_TOKEN_KEY = "brokerassist:web:auth-token";
 const AUTH_USER_KEY = "brokerassist:web:auth-user";

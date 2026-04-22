@@ -6,12 +6,12 @@
 from __future__ import annotations
 
 import json
+import asyncio
 from pathlib import Path
-from threading import Lock
 from typing import Optional
 
 
-_STORE_LOCK = Lock()
+_STORE_LOCK = asyncio.Lock()
 
 
 class RecordImageAnalysisStore:
@@ -37,33 +37,35 @@ class RecordImageAnalysisStore:
 
     def _write(self, data: dict) -> None:
         self._ensure_file()
-        self.store_path.write_text(
+        temp_path = self.store_path.with_suffix(f"{self.store_path.suffix}.tmp")
+        temp_path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        temp_path.replace(self.store_path)
 
-    def get_record_analysis_map(self, record_id: str) -> dict[str, dict]:
-        with _STORE_LOCK:
-            data = self._read()
+    async def get_record_analysis_map(self, record_id: str) -> dict[str, dict]:
+        async with _STORE_LOCK:
+            data = await asyncio.to_thread(self._read)
             record_data = data.get(record_id, {})
             return record_data if isinstance(record_data, dict) else {}
 
-    def get_image_analysis(self, record_id: str, image_url: str) -> dict | None:
-        return self.get_record_analysis_map(record_id).get(image_url)
+    async def get_image_analysis(self, record_id: str, image_url: str) -> dict | None:
+        return (await self.get_record_analysis_map(record_id)).get(image_url)
 
-    def save_image_analysis(self, record_id: str, image_url: str, payload: dict) -> None:
-        with _STORE_LOCK:
-            data = self._read()
+    async def save_image_analysis(self, record_id: str, image_url: str, payload: dict) -> None:
+        async with _STORE_LOCK:
+            data = await asyncio.to_thread(self._read)
             record_data = data.get(record_id)
             if not isinstance(record_data, dict):
                 record_data = {}
             record_data[image_url] = payload
             data[record_id] = record_data
-            self._write(data)
+            await asyncio.to_thread(self._write, data)
 
-    def delete_record(self, record_id: str) -> None:
-        with _STORE_LOCK:
-            data = self._read()
+    async def delete_record(self, record_id: str) -> None:
+        async with _STORE_LOCK:
+            data = await asyncio.to_thread(self._read)
             if record_id in data:
                 data.pop(record_id, None)
-                self._write(data)
+                await asyncio.to_thread(self._write, data)

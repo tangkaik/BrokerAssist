@@ -7,14 +7,14 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import re
 from pathlib import Path
-from threading import Lock
 from typing import Optional
 from uuid import uuid4
 
 
-_STORE_LOCK = Lock()
+_STORE_LOCK = asyncio.Lock()
 
 
 class RecordImageStore:
@@ -44,16 +44,18 @@ class RecordImageStore:
 
     def _write_index(self, data: dict) -> None:
         self._ensure_dirs()
-        self.index_path.write_text(
+        temp_path = self.index_path.with_suffix(f"{self.index_path.suffix}.tmp")
+        temp_path.write_text(
             json.dumps(data, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        temp_path.replace(self.index_path)
 
     def _safe_name(self, name: str) -> str:
         cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("._")
         return cleaned or "image"
 
-    def save_images(
+    async def save_images(
         self,
         *,
         user_id: str,
@@ -68,38 +70,42 @@ class RecordImageStore:
         target_dir = self.root_dir / user_id / customer_id / record_id
         target_dir.mkdir(parents=True, exist_ok=True)
 
-        saved_items = []
-        for original_name, file_bytes, content_type in files:
-            suffix = Path(original_name).suffix.lower() or ".jpg"
-            safe_base = self._safe_name(Path(original_name).stem)
-            file_name = f"{uuid4().hex[:10]}_{safe_base}{suffix}"
-            file_path = target_dir / file_name
-            file_path.write_bytes(file_bytes)
+        def _save() -> list[dict]:
+            saved_items = []
+            for original_name, file_bytes, content_type in files:
+                suffix = Path(original_name).suffix.lower() or ".jpg"
+                safe_base = self._safe_name(Path(original_name).stem)
+                file_name = f"{uuid4().hex[:10]}_{safe_base}{suffix}"
+                file_path = target_dir / file_name
+                file_path.write_bytes(file_bytes)
 
-            relative_path = file_path.relative_to(self.root_dir.parent).as_posix()
-            saved_items.append(
-                {
-                    "name": original_name,
-                    "path": relative_path,
-                    "url": f"/media/{relative_path}",
-                    "content_type": content_type or "image/jpeg",
-                }
-            )
+                relative_path = file_path.relative_to(self.root_dir.parent).as_posix()
+                saved_items.append(
+                    {
+                        "name": original_name,
+                        "path": relative_path,
+                        "url": f"/media/{relative_path}",
+                        "content_type": content_type or "image/jpeg",
+                    }
+                )
+            return saved_items
 
-        with _STORE_LOCK:
-            index = self._read_index()
+        saved_items = await asyncio.to_thread(_save)
+
+        async with _STORE_LOCK:
+            index = await asyncio.to_thread(self._read_index)
             index[record_id] = saved_items
-            self._write_index(index)
+            await asyncio.to_thread(self._write_index, index)
 
         return saved_items
 
-    def get_record_images(self, record_id: str) -> list[dict]:
-        with _STORE_LOCK:
-            index = self._read_index()
+    async def get_record_images(self, record_id: str) -> list[dict]:
+        async with _STORE_LOCK:
+            index = await asyncio.to_thread(self._read_index)
             items = index.get(record_id, [])
             return items if isinstance(items, list) else []
 
-    def replace_record_images(
+    async def replace_record_images(
         self,
         *,
         user_id: str,
@@ -108,54 +114,62 @@ class RecordImageStore:
         keep_urls: list[str],
         new_files: list[tuple[str, bytes, Optional[str]]],
     ) -> list[dict]:
-        with _STORE_LOCK:
-            index = self._read_index()
+        async with _STORE_LOCK:
+            index = await asyncio.to_thread(self._read_index)
             existing = index.get(record_id, [])
-            kept_items = [
-                item for item in existing
-                if isinstance(item, dict) and item.get("url") in keep_urls
-            ]
 
-            for item in existing:
-                if not isinstance(item, dict):
-                    continue
-                if item.get("url") in keep_urls:
-                    continue
-                file_path = self.root_dir.parent / item.get("path", "")
-                if file_path.exists():
-                    file_path.unlink()
+            def _replace() -> list[dict]:
+                kept_items = [
+                    item for item in existing
+                    if isinstance(item, dict) and item.get("url") in keep_urls
+                ]
 
-            if new_files:
-                target_dir = self.root_dir / user_id / customer_id / record_id
-                target_dir.mkdir(parents=True, exist_ok=True)
-                for original_name, file_bytes, content_type in new_files:
-                    suffix = Path(original_name).suffix.lower() or ".jpg"
-                    safe_base = self._safe_name(Path(original_name).stem)
-                    file_name = f"{uuid4().hex[:10]}_{safe_base}{suffix}"
-                    file_path = target_dir / file_name
-                    file_path.write_bytes(file_bytes)
-                    relative_path = file_path.relative_to(self.root_dir.parent).as_posix()
-                    kept_items.append(
-                        {
-                            "name": original_name,
-                            "path": relative_path,
-                            "url": f"/media/{relative_path}",
-                            "content_type": content_type or "image/jpeg",
-                        }
-                    )
+                for item in existing:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("url") in keep_urls:
+                        continue
+                    file_path = self.root_dir.parent / item.get("path", "")
+                    if file_path.exists():
+                        file_path.unlink()
 
+                if new_files:
+                    target_dir = self.root_dir / user_id / customer_id / record_id
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                    for original_name, file_bytes, content_type in new_files:
+                        suffix = Path(original_name).suffix.lower() or ".jpg"
+                        safe_base = self._safe_name(Path(original_name).stem)
+                        file_name = f"{uuid4().hex[:10]}_{safe_base}{suffix}"
+                        file_path = target_dir / file_name
+                        file_path.write_bytes(file_bytes)
+                        relative_path = file_path.relative_to(self.root_dir.parent).as_posix()
+                        kept_items.append(
+                            {
+                                "name": original_name,
+                                "path": relative_path,
+                                "url": f"/media/{relative_path}",
+                                "content_type": content_type or "image/jpeg",
+                            }
+                        )
+                return kept_items
+
+            kept_items = await asyncio.to_thread(_replace)
             index[record_id] = kept_items
-            self._write_index(index)
+            await asyncio.to_thread(self._write_index, index)
             return kept_items
 
-    def delete_record_images(self, record_id: str) -> None:
-        with _STORE_LOCK:
-            index = self._read_index()
+    async def delete_record_images(self, record_id: str) -> None:
+        async with _STORE_LOCK:
+            index = await asyncio.to_thread(self._read_index)
             existing = index.pop(record_id, [])
-            for item in existing:
-                if not isinstance(item, dict):
-                    continue
-                file_path = self.root_dir.parent / item.get("path", "")
-                if file_path.exists():
-                    file_path.unlink()
-            self._write_index(index)
+
+            def _delete() -> None:
+                for item in existing:
+                    if not isinstance(item, dict):
+                        continue
+                    file_path = self.root_dir.parent / item.get("path", "")
+                    if file_path.exists():
+                        file_path.unlink()
+
+            await asyncio.to_thread(_delete)
+            await asyncio.to_thread(self._write_index, index)

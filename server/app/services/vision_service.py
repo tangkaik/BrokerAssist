@@ -9,14 +9,52 @@
 from __future__ import annotations
 
 import base64
+import logging
 
 from app.ai.kimi_client import KimiClient
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 def build_image_data_url(content_type: str, raw_bytes: bytes) -> str:
     encoded = base64.b64encode(raw_bytes).decode("utf-8")
     return f"data:{content_type};base64,{encoded}"
+
+
+def _extract_message_text(content) -> str:
+    if isinstance(content, str):
+        return content.strip()
+
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    parts.append(text)
+                continue
+
+            if not isinstance(item, dict):
+                continue
+
+            item_type = item.get("type")
+            if item_type == "text":
+                text = str(item.get("text", "")).strip()
+                if text:
+                    parts.append(text)
+                continue
+
+            # 兼容部分 provider 返回 output_text/content 之类字段
+            for key in ("text", "output_text", "content"):
+                value = item.get(key)
+                if isinstance(value, str) and value.strip():
+                    parts.append(value.strip())
+                    break
+
+        return "\n".join(parts).strip()
+
+    return ""
 
 
 async def analyze_image_with_qwen(
@@ -55,5 +93,8 @@ async def analyze_image_with_qwen(
         ]
     )
 
-    answer = response.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
-    return answer.strip()
+    message = response.get("choices", [{}])[0].get("message", {})
+    answer = _extract_message_text(message.get("content"))
+    if not answer:
+        logger.warning("Vision model returned empty content: %s", response)
+    return answer

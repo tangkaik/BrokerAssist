@@ -34,11 +34,11 @@ class RecordImageAnalysisService:
         self.image_store = image_store or RecordImageStore()
         self.analysis_store = analysis_store or RecordImageAnalysisStore()
 
-    def get_record_analysis_map(self, record_id: str) -> dict[str, dict]:
-        return self.analysis_store.get_record_analysis_map(record_id)
+    async def get_record_analysis_map(self, record_id: str) -> dict[str, dict]:
+        return await self.analysis_store.get_record_analysis_map(record_id)
 
-    def delete_record(self, record_id: str) -> None:
-        self.analysis_store.delete_record(record_id)
+    async def delete_record(self, record_id: str) -> None:
+        await self.analysis_store.delete_record(record_id)
 
     def _build_analysis_prompt(self, analyze_modes: list[str] | None = None) -> str:
         selected_modes = {
@@ -74,7 +74,7 @@ class RecordImageAnalysisService:
         image_url: str,
         analyze_modes: list[str] | None = None,
     ) -> tuple[dict | None, str | None]:
-        images = self.image_store.get_record_images(record_id)
+        images = await self.image_store.get_record_images(record_id)
         image_item = next((item for item in images if item.get("url") == image_url), None)
         if not image_item:
             return None, "图片不存在"
@@ -93,5 +93,5 @@ class RecordImageAnalysisService:
             "answer": answer or "暂时未识别出有效内容",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        self.analysis_store.save_image_analysis(record_id, image_url, payload)
+        await self.analysis_store.save_image_analysis(record_id, image_url, payload)
         return payload, None

@@ -13,17 +13,31 @@ import jwt
 from app.core.config import settings
 
 
-def hash_password(password: str, *, iterations: int = 120_000) -> str:
+# 在小规格云主机上保留足够强度，同时避免首启或注册时长时间卡死。
+ARGON2_TIME_COST = 2
+ARGON2_MEMORY_COST = 19456
+ARGON2_PARALLELISM = 1
+
+
+def hash_password(password: str, *, time_cost: int = ARGON2_TIME_COST) -> str:
     """生成 Argon2 密码哈希。"""
     import argon2
-    ph = argon2.PasswordHasher(time_cost=iterations, memory_cost=65536, parallelism=4)
+    ph = argon2.PasswordHasher(
+        time_cost=time_cost,
+        memory_cost=ARGON2_MEMORY_COST,
+        parallelism=ARGON2_PARALLELISM,
+    )
     return ph.hash(password)
 
 
 def verify_password(password: str, password_hash: str) -> bool:
     """校验密码是否匹配。"""
     import argon2
-    ph = argon2.PasswordHasher()
+    ph = argon2.PasswordHasher(
+        time_cost=ARGON2_TIME_COST,
+        memory_cost=ARGON2_MEMORY_COST,
+        parallelism=ARGON2_PARALLELISM,
+    )
     try:
         ph.verify(password_hash, password)
         return True

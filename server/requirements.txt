@@ -16,7 +16,7 @@ alembic==1.13.1
 supabase==2.3.4
 
 # HTTP Client
-httpx==0.25.0
+httpx==0.27.2
 
 # Security
 PyJWT==2.8.0

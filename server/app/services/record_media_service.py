@@ -27,7 +27,7 @@ class RecordMediaService:
             image_store=self.image_store,
         )
 
-    def save_images(
+    async def save_images(
         self,
         *,
         user_id: str,
@@ -35,14 +35,14 @@ class RecordMediaService:
         record_id: str,
         files: list[tuple[str, bytes, str | None]],
     ) -> list[dict]:
-        return self.image_store.save_images(
+        return await self.image_store.save_images(
             user_id=user_id,
             customer_id=customer_id,
             record_id=record_id,
             files=files,
         )
 
-    def replace_images(
+    async def replace_images(
         self,
         *,
         user_id: str,
@@ -51,7 +51,7 @@ class RecordMediaService:
         keep_urls: list[str],
         new_files: list[tuple[str, bytes, str | None]],
     ) -> list[dict]:
-        return self.image_store.replace_record_images(
+        return await self.image_store.replace_record_images(
             user_id=user_id,
             customer_id=customer_id,
             record_id=record_id,
@@ -59,9 +59,9 @@ class RecordMediaService:
             new_files=new_files,
         )
 
-    def delete_record_assets(self, record_id: str) -> None:
-        self.image_store.delete_record_images(record_id)
-        self.image_analysis_service.delete_record(record_id)
+    async def delete_record_assets(self, record_id: str) -> None:
+        await self.image_store.delete_record_images(record_id)
+        await self.image_analysis_service.delete_record(record_id)
 
     async def analyze_record_image(
         self,
@@ -76,9 +76,9 @@ class RecordMediaService:
             analyze_modes=analyze_modes,
         )
 
-    def build_record_item(self, record: Record, images: list[dict] | None = None) -> RecordItem:
-        image_items = images if images is not None else self.image_store.get_record_images(record.id)
-        image_analysis_map = self.image_analysis_service.get_record_analysis_map(record.id)
+    async def build_record_item(self, record: Record, images: list[dict] | None = None) -> RecordItem:
+        image_items = images if images is not None else await self.image_store.get_record_images(record.id)
+        image_analysis_map = await self.image_analysis_service.get_record_analysis_map(record.id)
         return RecordItem(
             id=record.id,
             customer_id=record.customer_id,

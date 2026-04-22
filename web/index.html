@@ -287,12 +287,12 @@
           <button id="show-register" type="button" class="button button-ghost">注册</button>
         </div>
 
-        <form id="login-form" class="stack-form">
-          <label>
+        <form id="login-form" class="stack-form auth-form">
+          <label class="auth-field">
             <span>账号</span>
             <input id="login-account" name="account" type="text" placeholder="手机号或邮箱" required />
           </label>
-          <label>
+          <label class="auth-field">
             <span>密码</span>
             <input id="login-password" name="password" type="password" placeholder="至少 6 位" required />
           </label>
@@ -301,16 +301,16 @@
           </div>
         </form>
 
-        <form id="register-form" class="stack-form hidden">
-          <label>
+        <form id="register-form" class="stack-form auth-form hidden">
+          <label class="auth-field">
             <span>昵称</span>
             <input id="register-name" name="name" type="text" placeholder="可选" />
           </label>
-          <label>
+          <label class="auth-field">
             <span>账号</span>
             <input id="register-account" name="account" type="text" placeholder="手机号或邮箱" required />
           </label>
-          <label>
+          <label class="auth-field">
             <span>密码</span>
             <input id="register-password" name="password" type="password" placeholder="至少 6 位" required />
           </label>
@@ -336,7 +336,7 @@
           <input
             id="api-base-url"
             type="text"
-            placeholder="http://127.0.0.1:8001/api/v1"
+            placeholder="https://你的域名/api/v1 或 http://服务器IP/api/v1"
           />
         </label>
 

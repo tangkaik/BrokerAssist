@@ -24,6 +24,40 @@ FOLLOW_UP_LOOKBACK_MONTHS = 1
 PRIORITY_CUSTOMER_LIMIT = 3
 
 
+def is_list_all_customers_question(question: str) -> bool:
+    normalized = question.strip()
+    keywords = [
+        "列出当前所有客户",
+        "列出所有客户",
+        "所有客户",
+        "全部客户",
+        "客户清单",
+        "客户列表",
+    ]
+    return any(keyword in normalized for keyword in keywords)
+
+
+def is_stale_contact_question(question: str) -> bool:
+    normalized = question.strip()
+    return (
+        "客户" in normalized and
+        ("未联系" in normalized or "没联系" in normalized) and
+        ("两个月" in normalized or "2个月" in normalized or "最近两个月" in normalized)
+    )
+
+
+def is_priority_customer_question(question: str) -> bool:
+    normalized = question.strip()
+    keywords = [
+        "优先级最高",
+        "最该跟进",
+        "优先跟进",
+        "重点跟进",
+        "最值得跟进",
+    ]
+    return any(keyword in normalized for keyword in keywords)
+
+
 def subtract_months(value: date, months: int) -> date:
     """按自然月回退日期，避免把"两个月"近似成 60 天。"""
     year = value.year
@@ -409,13 +443,22 @@ async def build_area_customer_answer_with_llm(question: str, customer_contexts: 
 class AIService:
     """AI 相关业务服务。"""
 
-    async def ask_image_question(self, question: str, image) -> dict:
-        if image.content_type and not image.content_type.startswith("image/"):
-            raise ValueError(f"{image.filename or '文件'} 不是支持的图片格式")
+    async def ask_image_question(
+        self,
+        question: str,
+        image,
+        validated_file: tuple[str, bytes, str | None] | None = None,
+    ) -> dict:
+        if validated_file is not None:
+            _, raw_bytes, content_type = validated_file
+        else:
+            if image.content_type and not image.content_type.startswith("image/"):
+                raise ValueError(f"{image.filename or '文件'} 不是支持的图片格式")
 
-        raw_bytes = await image.read()
-        if not raw_bytes:
-            raise ValueError("图片内容为空")
+            raw_bytes = await image.read()
+            if not raw_bytes:
+                raise ValueError("图片内容为空")
+            content_type = image.content_type or "image/jpeg"
 
         answer = await analyze_image_with_qwen(
             question=(
@@ -424,7 +467,7 @@ class AIService:
                 "优先帮助用户完成：识别材料类型、提取关键信息、总结重点、整理成可行动输出。"
             ),
             raw_bytes=raw_bytes,
-            content_type=image.content_type or "image/jpeg",
+            content_type=content_type,
         )
         if not answer.strip():
             answer = "我收到了这张图片，但这次没能稳定读出内容。可以换一张更清晰的图片，或者直接问我想提取什么信息。"
@@ -491,6 +534,15 @@ class AIService:
 
     async def ask_global_question(self, user_id: str, question: str) -> str:
         customer_contexts = await self._build_customer_contexts(user_id)
+
+        if is_list_all_customers_question(question):
+            return build_list_all_customers_answer(customer_contexts)
+
+        if is_stale_contact_question(question):
+            return build_stale_contact_answer(customer_contexts)
+
+        if is_priority_customer_question(question):
+            return build_priority_customers_answer(customer_contexts)
 
         # 地区查询：直接 SQL 精准匹配，不过 LLM 猜
         if looks_like_area_question(question):
