@@ -52,6 +52,14 @@ Thumbs.db
 full_test_report_*.json
 test_report_*.json
 
+# Local generated artifacts
+outputs/
+tmp/
+server/*.jsonl
+mobile/.flutter-plugins-dependencies*
+mobile/ios/Flutter/Generated*.xcconfig
+mobile/ios/Flutter/flutter_export_environment*.sh
+
 # Coverage
 htmlcov/
 .coverage
