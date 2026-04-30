@@ -15,6 +15,7 @@ import 'pages/account_page.dart';
 import 'services/api_config.dart';
 import 'services/auth_session.dart';
 import 'services/api_error_handler.dart';
+import 'services/industry_settings.dart';
 import 'models/models.dart';
 
 /// BrokerAssist App
@@ -25,6 +26,7 @@ void main() async {
   // 初始化 API 配置（运行时切换用）
   await ApiConfig.load();
   await AuthSession.load();
+  await IndustrySettings.load();
   runApp(const MyApp());
 }
 
@@ -57,11 +59,13 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _handleAuthenticated(AuthSessionData session) async {
     await AuthSession.save(token: session.token, user: session.user);
+    await IndustrySettings.load();
     _syncAuthState();
   }
 
   Future<void> _handleLogout() async {
     await AuthSession.clear();
+    IndustrySettings.resetInMemory();
     _syncAuthState();
   }
 

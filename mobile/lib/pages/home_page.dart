@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../services/industry_settings.dart';
 import '../widgets/customer_avatar.dart';
+import '../widgets/industry_picker.dart';
 import 'ai_chat_page.dart';
 import 'create_customer_page.dart';
 import 'customer_list_page.dart';
@@ -29,6 +31,7 @@ class _HomePageState extends State<HomePage> {
   String? _error;
   List<Customer> _recentCustomers = const [];
   int _customerTotal = 0;
+  bool _showedInitialIndustryPicker = false;
 
   bool get _hasCustomers => _customerTotal > 0 || _recentCustomers.isNotEmpty;
 
@@ -58,6 +61,7 @@ class _HomePageState extends State<HomePage> {
         if (response.success && response.data != null) {
           _recentCustomers = response.data!.items;
           _customerTotal = response.data!.total;
+          _maybeShowInitialIndustryPicker();
         } else {
           _error = response.error?.message ?? '暂时无法加载首页数据';
         }
@@ -71,6 +75,24 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
+  void _maybeShowInitialIndustryPicker() {
+    if (_showedInitialIndustryPicker || IndustrySettings.hasSelectedIndustry) {
+      return;
+    }
+    _showedInitialIndustryPicker = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      final selected = await showIndustryPicker(
+        context,
+        current: IndustrySettings.current,
+        title: '先选择你的行业',
+        subtitle: '默认可以选择通用。选定后，首页和后续 AI 画像会按这个方向组织。',
+        requireSelection: true,
+      );
+      await IndustrySettings.save(selected ?? IndustryOption.generic);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -79,7 +101,11 @@ class _HomePageState extends State<HomePage> {
         titleSpacing: 20,
         title: GestureDetector(
           onLongPress: () => Navigator.pushNamed(context, '/api-settings'),
-          child: const _WorkspaceTitle(),
+          child: ValueListenableBuilder<IndustryOption>(
+            valueListenable: IndustrySettings.selected,
+            builder: (context, industry, _) =>
+                _WorkspaceTitle(industry: industry),
+          ),
         ),
         actions: [
           IconButton(
@@ -113,7 +139,9 @@ class _HomePageState extends State<HomePage> {
 }
 
 class _WorkspaceTitle extends StatelessWidget {
-  const _WorkspaceTitle();
+  final IndustryOption industry;
+
+  const _WorkspaceTitle({required this.industry});
 
   @override
   Widget build(BuildContext context) {
@@ -121,8 +149,8 @@ class _WorkspaceTitle extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Text(
-          '通用顾问工作区',
+        Text(
+          industry.workspaceLabel,
           style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
         ),
         const SizedBox(height: 2),
@@ -130,17 +158,17 @@ class _WorkspaceTitle extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
               decoration: BoxDecoration(
                 color: const Color(0xFFE7F5F2),
                 borderRadius: BorderRadius.circular(8),
               ),
-              child: const Text(
-                '选择行业',
-                style: TextStyle(
+              child: Text(
+                industry.label,
+                style: const TextStyle(
                   color: _HomePageState._teal,
                   fontSize: 11,
-                  fontWeight: FontWeight.w700,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
             ),
