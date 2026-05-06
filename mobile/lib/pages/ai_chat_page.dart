@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 import 'dart:io';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:image_picker/image_picker.dart';
+import '../models/models.dart';
 import '../services/api.dart';
 import '../services/auth_session.dart';
 import '../services/chat_storage.dart';
@@ -29,6 +30,119 @@ class _ChatMessage {
     : time = time ?? DateTime.now();
 }
 
+class _SuggestionGroup {
+  final String key;
+  final String title;
+  final IconData icon;
+  final List<List<String>> variants;
+
+  const _SuggestionGroup({
+    required this.key,
+    required this.title,
+    required this.icon,
+    required this.variants,
+  });
+}
+
+const List<_SuggestionGroup> _realEstateSuggestionGroups = [
+  _SuggestionGroup(
+    key: 'query',
+    title: '查客户数据',
+    icon: Icons.manage_search,
+    variants: [
+      ['哪些客户两个月没联系了？', '列出预算敏感的客户', '住在海淀区、预算充足的客户有哪些？'],
+      ['最近提到学区的客户有哪些？', '列出看房意向强的客户', '预算在500万以内的客户有哪些？'],
+      ['哪些客户关注通勤和地铁？', '列出近期沟通过首付压力的客户', '有哪些客户适合本周优先跟进？'],
+    ],
+  ),
+  _SuggestionGroup(
+    key: 'assist',
+    title: '客户跟进助手',
+    icon: Icons.edit_note,
+    variants: [
+      ['给蔡凤霞写一段约看房微信', '总结张建国上次拜访，并给出这次建议', '明天见王女士，帮我准备会谈简报'],
+      ['给蔡凤霞写一段跟进首付顾虑的微信', '整理张建国的预算和区域偏好', '见王女士前要确认哪些问题？'],
+      ['给蔡凤霞写一段看房后的温和跟进微信', '张建国现在情况怎样，下一步怎么跟？', '王女士犹豫不决时怎么推进？'],
+    ],
+  ),
+  _SuggestionGroup(
+    key: 'help',
+    title: '问产品用法',
+    icon: Icons.help_outline,
+    variants: [
+      ['客户画像怎么生成？', '下一步建议在哪里看？', '怎样添加一次客户沟通记录？'],
+      ['怎么给客户添加标签？', '语音记录怎么确认到客户？', 'AI助手能查哪些客户条件？'],
+      ['行业选择后还能修改吗？', '客户列表怎么搜索拼音？', '图片记录可以识别什么？'],
+    ],
+  ),
+];
+
+const List<_SuggestionGroup> _insuranceSuggestionGroups = [
+  _SuggestionGroup(
+    key: 'query',
+    title: '查客户数据',
+    icon: Icons.manage_search,
+    variants: [
+      ['哪些客户两个月没联系了？', '列出关注重疾险的客户', '有健康告知顾虑的客户有哪些？'],
+      ['列出预算敏感的客户', '哪些客户提到孩子保障？', '最近适合跟进保单配置的客户有哪些？'],
+      ['列出关注养老规划的客户', '哪些客户还没有明确预算？', '有哪些客户适合本周优先跟进？'],
+    ],
+  ),
+  _SuggestionGroup(
+    key: 'assist',
+    title: '客户跟进助手',
+    icon: Icons.edit_note,
+    variants: [
+      ['给蔡凤霞写一段聊保障缺口的微信', '总结张建国上次拜访，并给出这次建议', '明天见王女士，帮我准备会谈简报'],
+      ['给蔡凤霞写一段解释重疾险必要性的微信', '整理张建国的家庭责任和保障缺口', '见王女士前要确认哪些健康告知问题？'],
+      ['给蔡凤霞写一段保费压力异议处理话术', '张建国现在情况怎样，下一步怎么跟？', '王女士一直拖延决策怎么推进？'],
+    ],
+  ),
+  _SuggestionGroup(
+    key: 'help',
+    title: '问产品用法',
+    icon: Icons.help_outline,
+    variants: [
+      ['客户画像怎么生成？', '下一步建议在哪里看？', '怎样添加一次客户沟通记录？'],
+      ['怎么给客户添加标签？', '语音记录怎么确认到客户？', 'AI助手能查哪些客户条件？'],
+      ['行业选择后还能修改吗？', '客户列表怎么搜索拼音？', '图片记录可以识别什么？'],
+    ],
+  ),
+];
+
+const List<_SuggestionGroup> _genericSuggestionGroups = [
+  _SuggestionGroup(
+    key: 'query',
+    title: '查客户数据',
+    icon: Icons.manage_search,
+    variants: [
+      ['哪些客户两个月没联系了？', '列出预算敏感的客户', '有哪些客户适合本周优先跟进？'],
+      ['列出最近沟通频繁的客户', '哪些客户还没有明确需求？', '住在海淀区的客户有哪些？'],
+      ['列出女性客户', '哪些客户提到价格顾虑？', '有多少客户超过两个月没联系？'],
+    ],
+  ),
+  _SuggestionGroup(
+    key: 'assist',
+    title: '客户跟进助手',
+    icon: Icons.edit_note,
+    variants: [
+      ['给蔡凤霞写一段跟进微信', '总结张建国上次沟通，并给出这次建议', '明天见王女士，帮我准备会谈简报'],
+      ['给蔡凤霞写一段久未回复后的跟进微信', '整理张建国的需求和顾虑', '见王女士前要确认哪些问题？'],
+      ['给蔡凤霞写一段温和确认时间的微信', '张建国现在情况怎样，下一步怎么跟？', '王女士犹豫时怎么推进？'],
+    ],
+  ),
+  _SuggestionGroup(
+    key: 'help',
+    title: '问产品用法',
+    icon: Icons.help_outline,
+    variants: [
+      ['客户画像怎么生成？', '下一步建议在哪里看？', '怎样添加一次客户沟通记录？'],
+      ['怎么给客户添加标签？', '语音记录怎么确认到客户？', 'AI助手能查哪些客户条件？'],
+      ['行业选择后还能修改吗？', '客户列表怎么搜索拼音？', '图片记录可以识别什么？'],
+    ],
+  ),
+];
+
 class _AIChatPageState extends State<AIChatPage> {
   /// 消息列表
   final List<_ChatMessage> _messages = [];
@@ -51,14 +165,11 @@ class _AIChatPageState extends State<AIChatPage> {
   /// 是否显示建议问题
   bool _showSuggestions = true;
 
-  /// 建议问题列表（5个）
-  final List<String> _suggestedQuestions = [
-    '有多少住在海淀区的女客户',
-    '列出55岁以上的女性客户',
-    '徐汇区的客户有哪些',
-    '哪些客户两个月没联系了',
-    '列出高净值客户',
-  ];
+  /// 每个建议分组当前显示第几组问题
+  final Map<String, int> _suggestionVariantIndex = {};
+
+  /// 用于动态生成“客户跟进助手”建议的最近客户
+  List<Customer> _suggestionCustomers = [];
 
   /// 搜索历史
   List<String> _searchHistory = [];
@@ -74,10 +185,98 @@ class _AIChatPageState extends State<AIChatPage> {
   static const int _maxLinesPerMessage = 100; // 每条消息最大行数（超过则截断）
   static const int _maxContextMessages = 16; // 最近 8 轮，供后端多轮能力使用
 
+  List<_SuggestionGroup> get _suggestionGroups {
+    final industryKey = AuthSession.currentUser?.industryKey ?? 'generic';
+    final baseGroups = switch (industryKey) {
+      'insurance' => _insuranceSuggestionGroups,
+      'real_estate' => _realEstateSuggestionGroups,
+      _ => _genericSuggestionGroups,
+    };
+    if (_suggestionCustomers.isEmpty) {
+      return baseGroups.map((group) {
+        if (group.key != 'assist') return group;
+        return _emptyCustomerAssistGroup(group);
+      }).toList();
+    }
+    return baseGroups.map((group) {
+      if (group.key != 'assist') return group;
+      return _dynamicCustomerAssistGroup(group, industryKey);
+    }).toList();
+  }
+
+  _SuggestionGroup _emptyCustomerAssistGroup(_SuggestionGroup baseGroup) {
+    return _SuggestionGroup(
+      key: baseGroup.key,
+      title: baseGroup.title,
+      icon: baseGroup.icon,
+      variants: const [
+        ['给某位客户写一段跟进微信', '总结某位客户上次沟通，并给出这次建议', '见客户前帮我准备会谈简报'],
+        ['先添加客户和沟通记录，再让我写微信', '先选择一位客户，再让我总结上次拜访', '先保存客户记录，再让我准备问题清单'],
+        ['给客户写微信时请带上客户姓名', '准备会谈简报时请带上客户姓名', '问下一步怎么跟时请带上客户姓名'],
+      ],
+    );
+  }
+
+  _SuggestionGroup _dynamicCustomerAssistGroup(
+    _SuggestionGroup baseGroup,
+    String industryKey,
+  ) {
+    final names = _suggestionCustomers
+        .map((customer) => customer.name.trim())
+        .where((name) => name.isNotEmpty)
+        .toList();
+    String nameAt(int index) => names[index % names.length];
+    final first = nameAt(0);
+    final second = nameAt(names.length > 1 ? 1 : 0);
+    final third = nameAt(names.length > 2 ? 2 : names.length - 1);
+
+    final variants = switch (industryKey) {
+      'insurance' => [
+          ['给$first写一段聊保障缺口的微信', '总结$second上次拜访，并给出这次建议', '明天见$third，帮我准备会谈简报'],
+          ['给$first写一段解释重疾险必要性的微信', '整理$second的家庭责任和保障缺口', '见$third前要确认哪些健康告知问题？'],
+          ['给$first写一段保费压力异议处理话术', '$second现在情况怎样，下一步怎么跟？', '$third一直拖延决策怎么推进？'],
+        ],
+      'real_estate' => [
+          ['给$first写一段约看房微信', '总结$second上次拜访，并给出这次建议', '明天见$third，帮我准备会谈简报'],
+          ['给$first写一段跟进首付顾虑的微信', '整理$second的预算和区域偏好', '见$third前要确认哪些问题？'],
+          ['给$first写一段看房后的温和跟进微信', '$second现在情况怎样，下一步怎么跟？', '$third犹豫不决时怎么推进？'],
+        ],
+      _ => [
+          ['给$first写一段跟进微信', '总结$second上次沟通，并给出这次建议', '明天见$third，帮我准备会谈简报'],
+          ['给$first写一段久未回复后的跟进微信', '整理$second的需求和顾虑', '见$third前要确认哪些问题？'],
+          ['给$first写一段温和确认时间的微信', '$second现在情况怎样，下一步怎么跟？', '$third犹豫时怎么推进？'],
+        ],
+    };
+
+    return _SuggestionGroup(
+      key: baseGroup.key,
+      title: baseGroup.title,
+      icon: baseGroup.icon,
+      variants: variants,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _initChatStorage();
+    _loadSuggestionCustomers();
+  }
+
+  Future<void> _loadSuggestionCustomers() async {
+    if (!AuthSession.isLoggedIn) return;
+    try {
+      final response = await apiService.getCustomers(page: 1, pageSize: 6);
+      final customers = response.data?.items ?? <Customer>[];
+      if (!mounted) return;
+      setState(() {
+        _suggestionCustomers = customers
+            .where((customer) => customer.name.trim().isNotEmpty)
+            .toList();
+      });
+    } catch (_) {
+      // 建议问题加载失败不影响 AI 助手主流程。
+    }
   }
 
   Future<void> _initChatStorage() async {
@@ -118,6 +317,14 @@ class _AIChatPageState extends State<AIChatPage> {
     await _chatStorage!.addSearchQuery(query);
     _searchHistory = _chatStorage!.loadSearchHistory();
     if (mounted) setState(() {});
+  }
+
+  void _rotateSuggestionGroup(_SuggestionGroup group) {
+    final current = _suggestionVariantIndex[group.key] ?? 0;
+    setState(() {
+      _suggestionVariantIndex[group.key] =
+          (current + 1) % group.variants.length;
+    });
   }
 
   @override
@@ -378,13 +585,21 @@ class _AIChatPageState extends State<AIChatPage> {
         // 输入区（置顶）
         _buildTopInputArea(),
 
-        // 建议问题
-        if (_showSuggestions) _buildSuggestedQuestions(),
+        Expanded(
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                // 建议问题
+                if (_showSuggestions) _buildSuggestedQuestions(),
 
-        const Divider(height: 1),
+                const Divider(height: 1),
 
-        // 空状态
-        Expanded(child: _buildEmptyState()),
+                // 空状态
+                SizedBox(height: 260, child: _buildEmptyState()),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }
@@ -651,7 +866,7 @@ class _AIChatPageState extends State<AIChatPage> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    '基于您的客户数据提供业务洞察',
+                    '查客户、客户跟进、问用法',
                     style: TextStyle(fontSize: 13, color: Colors.grey[400]),
                   ),
                 ],
@@ -721,10 +936,59 @@ class _AIChatPageState extends State<AIChatPage> {
             ),
           ),
           const SizedBox(height: 12),
+          ..._suggestionGroups.map(_buildSuggestionGroup),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuggestionGroup(_SuggestionGroup group) {
+    final variantIndex =
+        (_suggestionVariantIndex[group.key] ?? 0) % group.variants.length;
+    final questions = group.variants[variantIndex];
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(group.icon, size: 16, color: const Color(0xFF4B5563)),
+              const SizedBox(width: 6),
+              Text(
+                group.title,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF4B5563),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: _isSending
+                    ? null
+                    : () => _rotateSuggestionGroup(group),
+                icon: const Icon(Icons.refresh, size: 15),
+                label: const Text('换一组'),
+                style: TextButton.styleFrom(
+                  foregroundColor: const Color(0xFF2196F3),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: VisualDensity.compact,
+                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
           Wrap(
             spacing: 10,
             runSpacing: 10,
-            children: _suggestedQuestions.map((q) {
+            children: questions.map((q) {
               return ActionChip(
                 label: Text(q),
                 backgroundColor: const Color(0xFF2196F3).withAlpha(25),
@@ -814,132 +1078,88 @@ class _AIChatPageState extends State<AIChatPage> {
     return text;
   }
 
-  /// 构建可点击文本（解析 [客户名|ID] 格式）
+  /// 构建 Markdown 文本，并解析 [客户名|ID] 为可点击客户链接。
   Widget _buildClickableText(String text) {
     text = _cleanAssistantAnswer(text);
-    final pipeRegex = RegExp(r'\[([^\]]+)\|([0-9a-fA-F-]{36})\]');
+    final markdownText = _normalizeCustomerLinksForMarkdown(text);
+    final baseStyle = const TextStyle(
+      color: Colors.black87,
+      fontSize: 15,
+      height: 1.5,
+    );
+
+    return MarkdownBody(
+      data: markdownText,
+      selectable: true,
+      styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+        p: baseStyle,
+        listBullet: baseStyle,
+        strong: baseStyle.copyWith(fontWeight: FontWeight.w700),
+        em: baseStyle.copyWith(fontStyle: FontStyle.italic),
+        h1: baseStyle.copyWith(fontSize: 20, fontWeight: FontWeight.w700),
+        h2: baseStyle.copyWith(fontSize: 18, fontWeight: FontWeight.w700),
+        h3: baseStyle.copyWith(fontSize: 16, fontWeight: FontWeight.w700),
+        blockquote: baseStyle.copyWith(color: Colors.black54),
+        code: baseStyle.copyWith(
+          fontFamily: 'monospace',
+          backgroundColor: Colors.white.withAlpha(180),
+        ),
+        a: baseStyle.copyWith(
+          color: const Color(0xFF2196F3),
+          decoration: TextDecoration.underline,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+      onTapLink: (text, href, title) {
+        final customerId = _extractCustomerIdFromHref(href);
+        if (customerId != null) {
+          _openCustomerDetail(customerId);
+        }
+      },
+    );
+  }
+
+  String _normalizeCustomerLinksForMarkdown(String text) {
+    final pipeRegex = RegExp(r'\[([^\]\n|]+)\|([0-9a-fA-F-]{36})\]');
     final barePipeRegex = RegExp(
       r'(?<!\[)([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z·]{1,20})\|([0-9a-fA-F-]{36})',
     );
-    final markdownRegex = RegExp(
-      r'\[([^\]]+)\]\((?:/customer-detail/|brokerassist://customer/)([0-9a-fA-F-]{36})\)',
-    );
-    final matches = <_InlineCustomerLinkMatch>[
-      ...pipeRegex
-          .allMatches(text)
-          .map(
-            (match) => _InlineCustomerLinkMatch(
-              start: match.start,
-              end: match.end,
-              name: match.group(1) ?? '',
-              id: match.group(2) ?? '',
-            ),
-          ),
-      ...barePipeRegex
-          .allMatches(text)
-          .map(
-            (match) => _InlineCustomerLinkMatch(
-              start: match.start,
-              end: match.end,
-              name: match.group(1) ?? '',
-              id: match.group(2) ?? '',
-            ),
-          ),
-      ...markdownRegex
-          .allMatches(text)
-          .map(
-            (match) => _InlineCustomerLinkMatch(
-              start: match.start,
-              end: match.end,
-              name: match.group(1) ?? '',
-              id: match.group(2) ?? '',
-            ),
-          ),
-    ]..sort((a, b) => a.start.compareTo(b.start));
+    return text
+        .replaceAllMapped(pipeRegex, (match) {
+          final name = match.group(1) ?? '';
+          final id = match.group(2) ?? '';
+          return '[$name](brokerassist://customer/$id)';
+        })
+        .replaceAllMapped(barePipeRegex, (match) {
+          final name = match.group(1) ?? '';
+          final id = match.group(2) ?? '';
+          return '[$name](brokerassist://customer/$id)';
+        });
+  }
 
-    final filteredMatches = <_InlineCustomerLinkMatch>[];
-    var previousEnd = -1;
-    for (final match in matches) {
-      if (match.start < previousEnd) continue;
-      filteredMatches.add(match);
-      previousEnd = match.end;
-    }
-
-    if (filteredMatches.isEmpty) {
-      // 没有链接，普通文本
-      return Text(
-        text,
-        style: TextStyle(color: Colors.black87, fontSize: 15, height: 1.5),
-      );
-    }
-
-    // 构建 RichText
-    final List<TextSpan> spans = [];
-    int currentPos = 0;
-
-    for (final match in filteredMatches) {
-      // 添加链接前的普通文本
-      if (match.start > currentPos) {
-        spans.add(
-          TextSpan(
-            text: text.substring(currentPos, match.start),
-            style: TextStyle(color: Colors.black87, fontSize: 15, height: 1.5),
-          ),
-        );
+  String? _extractCustomerIdFromHref(String? href) {
+    if (href == null || href.isEmpty) return null;
+    final patterns = [
+      RegExp(r'^brokerassist://customer/([0-9a-fA-F-]{36})$'),
+      RegExp(r'^/customer-detail/([0-9a-fA-F-]{36})$'),
+    ];
+    for (final pattern in patterns) {
+      final match = pattern.firstMatch(href);
+      if (match != null) {
+        return match.group(1);
       }
-
-      // 提取客户名和ID
-      final name = match.name;
-      final id = match.id;
-
-      // 添加可点击的客户链接
-      spans.add(
-        TextSpan(
-          text: name,
-          style: const TextStyle(
-            color: Color(0xFF2196F3),
-            fontSize: 15,
-            height: 1.5,
-            decoration: TextDecoration.underline,
-            fontWeight: FontWeight.w500,
-          ),
-          recognizer: TapGestureRecognizer()
-            ..onTap = () => _openCustomerDetail(id),
-        ),
-      );
-
-      currentPos = match.end;
     }
-
-    // 添加最后的普通文本
-    if (currentPos < text.length) {
-      spans.add(
-        TextSpan(
-          text: text.substring(currentPos),
-          style: TextStyle(color: Colors.black87, fontSize: 15, height: 1.5),
-        ),
-      );
-    }
-
-    return RichText(text: TextSpan(children: spans));
+    return null;
   }
 
   /// 打开客户详情页
   void _openCustomerDetail(String customerId) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customerId)));
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => CustomerDetailPage(),
+        settings: RouteSettings(arguments: customerId),
+      ),
+    );
   }
-}
-
-class _InlineCustomerLinkMatch {
-  final int start;
-  final int end;
-  final String name;
-  final String id;
-
-  _InlineCustomerLinkMatch({
-    required this.start,
-    required this.end,
-    required this.name,
-    required this.id,
-  });
 }

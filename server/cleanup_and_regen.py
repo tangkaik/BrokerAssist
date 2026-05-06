@@ -20,6 +20,7 @@ from sqlalchemy import select, delete, and_
 from app.db.session import async_session_factory
 from app.models.customer import Customer
 from app.models.record import Record
+from app.models.user import User
 from app.ai.kimi_client import KimiClient
 from app.core.prompts import (
     customer_summary,
@@ -137,9 +138,14 @@ async def step4_regen_for_customer(customer: dict) -> bool:
     customer_id = customer["id"]
     name = customer["name"]
     user_id = customer["user_id"]
+    industry_key = "generic"
 
     # --- 获取记录 ---
     async with async_session_factory() as session:
+        user = await session.get(User, user_id)
+        if user and user.industry_key:
+            industry_key = user.industry_key
+
         result = await session.execute(
             select(Record)
             .where(Record.customer_id == customer_id)
@@ -171,15 +177,15 @@ async def step4_regen_for_customer(customer: dict) -> bool:
     ])
 
     # --- 生成摘要 ---
-    logger.info(f"[{name}] 正在生成客户画像摘要 ({len(records)} 条记录)...")
-    summary_prompt = customer_summary(records_text)
+    logger.info(f"[{name}] 正在生成客户画像摘要 ({len(records)} 条记录, industry={industry_key})...")
+    summary_prompt = customer_summary(records_text, industry_key=industry_key)
 
     try:
         kimi = KimiClient()
         try:
             summary_text = await kimi.chat_simple(
                 prompt=summary_prompt,
-                system_prompt=customer_summary_system(),
+                system_prompt=customer_summary_system(industry_key=industry_key),
             )
         finally:
             await kimi.close()
@@ -234,6 +240,7 @@ async def step4_regen_for_customer(customer: dict) -> bool:
     advice_prompt = advice(
         customer_summary_text=summary_text,
         recent_records_text=recent_text,
+        industry_key=industry_key,
     )
 
     try:
@@ -241,7 +248,7 @@ async def step4_regen_for_customer(customer: dict) -> bool:
         try:
             advice_text = await kimi.chat_simple(
                 prompt=advice_prompt,
-                system_prompt=advice_system(),
+                system_prompt=advice_system(industry_key=industry_key),
             )
         finally:
             await kimi.close()

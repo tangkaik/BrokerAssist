@@ -9,14 +9,20 @@ import logging
 import re
 from datetime import date, datetime
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import func, select
 
 from app.ai.kimi_client import KimiClient
 from app.core.prompts import (
+    app_help_qa as _app_help_qa_prompt,
+    app_help_qa_system as _app_help_qa_system,
+    assistant_intent_plan as _assistant_intent_plan_prompt,
+    assistant_intent_plan_system as _assistant_intent_plan_system,
+    business_assist as _business_assist_prompt,
+    business_assist_plan as _business_assist_plan_prompt,
+    business_assist_plan_system as _business_assist_plan_system,
+    business_assist_system as _business_assist_system,
     customer_query_plan as _customer_query_plan_prompt,
     customer_query_plan_system as _customer_query_plan_system,
-    global_qa as _global_qa_prompt,
-    global_qa_system as _global_qa_system,
 )
 from app.db.session import async_session_factory
 from app.models.customer import Customer
@@ -25,12 +31,19 @@ from app.models.user import User
 from app.services.vision_service import analyze_image_with_qwen
 
 STALE_CONTACT_MONTHS = 2
-FOLLOW_UP_LOOKBACK_MONTHS = 1
-PRIORITY_CUSTOMER_LIMIT = 3
 CUSTOMER_QUERY_LIMIT = 50
-GLOBAL_FALLBACK_CUSTOMER_LIMIT = 50
 GLOBAL_RECENT_MESSAGE_LIMIT = 16
+BUSINESS_CONTEXT_CUSTOMER_LIMIT = 12
 SUPPORTED_QUERY_ACTIONS = {"list", "count", "none"}
+SUPPORTED_ASSISTANT_ACTIONS = {"customer_query", "app_help", "business_assist", "none"}
+SUPPORTED_BUSINESS_TASK_TYPES = {
+    "wechat_message",
+    "visit_brief",
+    "last_visit_summary",
+    "next_step_advice",
+    "question_checklist",
+    "general",
+}
 SUPPORTED_SORTS = {"last_contact_desc", "last_contact_asc", None}
 SUPPORTED_LOCATION_SCOPES = {"customer_address", "record_location", "any"}
 logger = logging.getLogger(__name__)
@@ -169,6 +182,41 @@ def validate_customer_query_plan(raw_plan: dict | None) -> dict | None:
         },
         "sort": sort,
         "limit": clean_int(raw_plan.get("limit"), minimum=1, maximum=100) or CUSTOMER_QUERY_LIMIT,
+    }
+
+
+def validate_assistant_intent_plan(raw_plan: dict | None) -> dict | None:
+    if not isinstance(raw_plan, dict):
+        return None
+
+    action = raw_plan.get("action")
+    if action not in SUPPORTED_ASSISTANT_ACTIONS:
+        return None
+
+    raw_needs_context = raw_plan.get("needs_customer_context")
+    needs_context = raw_needs_context is True
+    if isinstance(raw_needs_context, str):
+        needs_context = raw_needs_context.strip().lower() == "true"
+
+    return {
+        "action": action,
+        "task": clean_string(raw_plan.get("task"), max_len=160) or "",
+        "needs_customer_context": needs_context,
+    }
+
+
+def validate_business_assist_plan(raw_plan: dict | None) -> dict | None:
+    if not isinstance(raw_plan, dict):
+        return None
+
+    task_type = str(raw_plan.get("task_type") or "").strip()
+    if task_type not in SUPPORTED_BUSINESS_TASK_TYPES:
+        task_type = "general"
+
+    return {
+        "customer_name": clean_string(raw_plan.get("customer_name"), max_len=40) or "",
+        "task_type": task_type,
+        "task": clean_string(raw_plan.get("task"), max_len=160) or "",
     }
 
 
@@ -338,7 +386,7 @@ def describe_customer_query(filters: dict) -> str:
 
 
 def normalize_customer_links_and_tail(answer: str) -> str:
-    """兜底修正全局问答里的客户链接和无效不足信息尾句。"""
+    """清理 AI 输出里的客户链接和无效不足信息尾句。"""
     if not answer:
         return answer
 
@@ -398,52 +446,6 @@ def format_conversation_context(messages: list[dict]) -> str:
     )
 
 
-def trim_global_fallback_contexts(customer_contexts: list[dict]) -> tuple[list[dict], int]:
-    if len(customer_contexts) <= GLOBAL_FALLBACK_CUSTOMER_LIMIT:
-        return customer_contexts, 0
-
-    def sort_key(customer: dict) -> str:
-        last_contact = customer.get("last_contact")
-        return last_contact if last_contact and last_contact != "从未联系" else "0000-00-00"
-
-    sorted_contexts = sorted(customer_contexts, key=sort_key, reverse=True)
-    return sorted_contexts[:GLOBAL_FALLBACK_CUSTOMER_LIMIT], len(customer_contexts) - GLOBAL_FALLBACK_CUSTOMER_LIMIT
-
-
-def is_list_all_customers_question(question: str) -> bool:
-    normalized = question.strip()
-    keywords = [
-        "列出当前所有客户",
-        "列出所有客户",
-        "所有客户",
-        "全部客户",
-        "客户清单",
-        "客户列表",
-    ]
-    return any(keyword in normalized for keyword in keywords)
-
-
-def is_stale_contact_question(question: str) -> bool:
-    normalized = question.strip()
-    return (
-        "客户" in normalized and
-        ("未联系" in normalized or "没联系" in normalized) and
-        ("两个月" in normalized or "2个月" in normalized or "最近两个月" in normalized)
-    )
-
-
-def is_priority_customer_question(question: str) -> bool:
-    normalized = question.strip()
-    keywords = [
-        "优先级最高",
-        "最该跟进",
-        "优先跟进",
-        "重点跟进",
-        "最值得跟进",
-    ]
-    return any(keyword in normalized for keyword in keywords)
-
-
 def subtract_months(value: date, months: int) -> date:
     """按自然月回退日期，避免把"两个月"近似成 60 天。"""
     year = value.year
@@ -455,236 +457,6 @@ def subtract_months(value: date, months: int) -> date:
     last_day = calendar.monthrange(year, month)[1]
     day = min(value.day, last_day)
     return date(year, month, day)
-
-
-def build_stale_contact_answer(customer_contexts: list[dict]) -> str:
-    """对"两个月未联系"类问题走确定性回答，避免模型误判日期。"""
-    today = datetime.now().date()
-    threshold = subtract_months(today, STALE_CONTACT_MONTHS)
-    stale_customers = []
-
-    for customer in customer_contexts:
-        last_contact = customer.get("last_contact")
-        if not last_contact or last_contact == "从未联系":
-            stale_customers.append(
-                {
-                    "name": customer["name"],
-                    "id": customer["id"],
-                    "last_contact": "从未联系",
-                }
-            )
-            continue
-
-        try:
-            last_contact_date = datetime.strptime(last_contact, "%Y-%m-%d").date()
-        except ValueError:
-            continue
-
-        if last_contact_date <= threshold:
-            stale_customers.append(
-                {
-                    "name": customer["name"],
-                    "id": customer["id"],
-                    "last_contact": last_contact_date.isoformat(),
-                }
-            )
-
-    if not stale_customers:
-        return (
-            f"截至 {today.isoformat()}，按\"最近两个月未联系\"的口径"
-            f"（最后联系时间早于或等于 {threshold.isoformat()}），当前没有符合条件的客户。"
-        )
-
-    lines = [
-        f"截至 {today.isoformat()}，按\"最近两个月未联系\"的口径"
-        f"（最后联系时间早于或等于 {threshold.isoformat()}），以下客户需要优先关注：",
-        "",
-    ]
-    for index, customer in enumerate(stale_customers, start=1):
-        lines.append(
-            f"{index}. [{customer['name']}|{customer['id']}]：最后联系时间 {customer['last_contact']}。"
-        )
-    return "\n".join(lines)
-
-
-def build_list_all_customers_answer(customer_contexts: list[dict]) -> str:
-    """列出全部客户，输出格式稳定可点击。"""
-    if not customer_contexts:
-        return "当前还没有客户。"
-
-    lines = [f"当前共有 {len(customer_contexts)} 位客户：", ""]
-    for index, customer in enumerate(customer_contexts, start=1):
-        tags = "、".join(customer.get("tags") or [])
-        tag_text = f"；标签：{tags}" if tags else ""
-        lines.append(
-            f"{index}. [{customer['name']}|{customer['id']}]：最后联系时间 {customer['last_contact']}；记录数 {customer['records_count']}{tag_text}。"
-        )
-    return "\n".join(lines)
-
-
-BUSINESS_VALUE_TAGS = {
-    "高净值": ("高净值经营潜力较高", 3),
-    "预算充足": ("预算相对充足，更适合推进方案", 2),
-    "企业主": ("企业主客群通常有较高综合保障需求", 2),
-    "养老规划": ("养老规划需求较明确", 2),
-    "医疗险": ("医疗保障需求明确", 1),
-    "重疾险": ("重疾保障需求明确", 1),
-    "寿险优先": ("寿险配置意向明确", 2),
-    "资产传承": ("已进入资产传承类话题", 3),
-    "家族信托兴趣": ("对高阶传承工具有兴趣", 3),
-    "二胎家庭": ("家庭责任较重，保障议题更明确", 1),
-    "新生儿": ("家庭保障窗口期明显", 1),
-}
-
-FOLLOW_UP_KEYWORDS = {
-    "考虑": ("客户仍在考虑阶段，值得继续推进", 2),
-    "方案": ("已经进入方案沟通阶段", 2),
-    "预算": ("预算已被明确讨论", 1),
-    "保费": ("保费接受度已进入讨论", 1),
-    "加保": ("有继续加保空间", 2),
-    "养老": ("养老相关需求已被明确提及", 1),
-    "医疗": ("医疗相关保障需求已被明确提及", 1),
-    "重疾": ("重疾相关保障需求已被明确提及", 1),
-    "传承": ("传承需求已被明确提及", 2),
-    "理赔": ("有理赔经历或关注，转化动机可能更强", 1),
-}
-
-
-def priority_score(customer: dict) -> tuple[int, list[str]]:
-    """为"优先级最高客户"提供确定性排序。"""
-    score = 0
-    reasons = []
-    last_contact = customer.get("last_contact")
-    today = datetime.now().date()
-    follow_up_threshold = subtract_months(today, FOLLOW_UP_LOOKBACK_MONTHS)
-    cooling_threshold = subtract_months(today, STALE_CONTACT_MONTHS)
-
-    if last_contact == "从未联系":
-        score += 4
-        reasons.append("尚未建立首轮跟进")
-    else:
-        try:
-            last_contact_date = datetime.strptime(last_contact, "%Y-%m-%d").date()
-            if last_contact_date <= cooling_threshold:
-                score += 4
-                reasons.append(f"距离上次联系已超过两个月（{last_contact_date.isoformat()}）")
-            elif last_contact_date <= follow_up_threshold:
-                score += 2
-                reasons.append(f"最近联系时间为 {last_contact_date.isoformat()}")
-            else:
-                score += 1
-                reasons.append("近期有互动，可趁热继续推进")
-        except ValueError:
-            pass
-
-    summary_status = customer.get("summary_status")
-    if summary_status in {"stale", "failed"}:
-        score += 1
-        reasons.append("客户画像待更新")
-
-    tags = customer.get("tags") or []
-    for tag in tags:
-        tag_rule = BUSINESS_VALUE_TAGS.get(tag)
-        if not tag_rule:
-            continue
-        reason, bonus = tag_rule
-        score += bonus
-        reasons.append(reason)
-
-    records_count = customer.get("records_count", 0)
-    if records_count >= 8:
-        score += 2
-        reasons.append("历史互动较深，已具备持续推进基础")
-    elif records_count >= 4:
-        score += 1
-        reasons.append("已有多次互动基础")
-
-    combined_text = " ".join(
-        [
-            customer.get("summary", ""),
-            customer.get("recent_records", ""),
-            " ".join(tags),
-        ]
-    )
-    for keyword, (reason, bonus) in FOLLOW_UP_KEYWORDS.items():
-        if keyword in combined_text:
-            score += bonus
-            reasons.append(reason)
-
-    deduped_reasons = []
-    seen = set()
-    for reason in reasons:
-        if reason in seen:
-            continue
-        seen.add(reason)
-        deduped_reasons.append(reason)
-
-    if summary_status == "ready" and any(keyword in combined_text for keyword in ["方案", "预算", "保费"]):
-        score += 1
-        deduped_reasons.append("已有摘要且进入具体决策话题")
-
-    return score, deduped_reasons
-
-
-def build_priority_customers_answer(customer_contexts: list[dict]) -> str:
-    """输出优先跟进客户，使用简单稳定的启发式评分。"""
-    if not customer_contexts:
-        return "当前还没有客户，暂时无法推荐优先级。"
-
-    ranked = []
-    for customer in customer_contexts:
-        score, reasons = priority_score(customer)
-        ranked.append((score, customer, reasons))
-
-    ranked.sort(
-        key=lambda item: (
-            -item[0],
-            item[1]["last_contact"] if item[1]["last_contact"] != "从未联系" else "0000-00-00",
-            -item[1]["records_count"],
-        )
-    )
-
-    top_items = ranked[:PRIORITY_CUSTOMER_LIMIT]
-    lines = [f"当前建议优先跟进的 {PRIORITY_CUSTOMER_LIMIT} 位客户：", ""]
-    for index, (score, customer, reasons) in enumerate(top_items, start=1):
-        reason_text = "；".join(reasons[:3]) if reasons else "近期值得继续观察"
-        lines.append(
-            f"{index}. [{customer['name']}|{customer['id']}]：优先级分数 {score}；最后联系时间 {customer['last_contact']}；建议原因：{reason_text}。"
-        )
-    lines.append("")
-    lines.append("这是一套用于桌面版快速验证的启发式排序，后续可以再按你的业务口径继续细化。")
-    return "\n".join(lines)
-
-
-def looks_like_area_question(question: str) -> bool:
-    """判断是否为地区相关问题（客户+地理关键词）。"""
-    normalized = question.strip()
-    if "客户" not in normalized:
-        return False
-    geo_keywords = [
-        "区", "附近", "街道", "路", "园", "城", "大厦",
-        "附近", "城区", "商圈", "片区", "地址",
-        "海淀", "西城", "朝阳", "东城", "丰台", "石景山",
-        "顺义", "大兴", "通州", "昌平", "房山", "门头沟",
-    ]
-    return any(kw in normalized for kw in geo_keywords)
-
-
-def extract_target_area(question: str) -> str:
-    """从问句中提取地名（去掉问句后缀）。"""
-    normalized = question.strip()
-    suffixes = [
-        "附近有哪些客户", "有哪些客户", "有什么客户", "哪些客户",
-        "附近的客户", "附近", "的客户",
-        "有多少客户", "有多少个客户", "有几个客户", "有几位客户",
-        "有多少位客户", "有几个", "有几位",
-    ]
-    for suffix in suffixes:
-        if suffix in normalized:
-            candidate = normalized.split(suffix, 1)[0].strip("：:，,。?？ ")
-            if candidate:
-                return candidate
-    return normalized
 
 
 def normalize_place_name(value: str) -> str:
@@ -731,52 +503,6 @@ def is_location_match(target: dict, classified: dict) -> bool:
     return False
 
 
-def collect_structured_location_matches(target: dict, customer_contexts: list[dict]) -> list[dict]:
-    """用结构化地址字段做精准匹配。"""
-    matches = []
-    for customer in customer_contexts:
-        for location in customer.get("structured_locations", []):
-            if not is_location_match(target, location):
-                continue
-            matches.append({
-                "customer_id": customer["id"],
-                "customer_name": customer["name"],
-                "city": location.get("city"),
-                "district": location.get("district"),
-                "subarea": location.get("subarea"),
-                "evidence": location.get("raw") or location.get("subarea") or location.get("district"),
-                "last_contact": customer["last_contact"],
-                "confidence": "structured",
-            })
-            break
-    return matches
-
-
-def build_area_customer_answer_from_matches(target_area: str, target_classification: dict, matches: list[dict]) -> str:
-    """基于匹配结果生成回答。"""
-    target_city = target_classification.get("city") or "未知城市"
-    target_district = target_classification.get("district") or "未确定城区"
-    target_subarea = target_classification.get("subarea") or "未限定片区"
-
-    if not matches:
-        return f"根据当前记录，没有找到与 {target_area} 相关的客户。"
-
-    lines = [
-        f"根据当前记录，以下客户与 {target_area} 有关：",
-        f"（目标归属：{target_city} / {target_district} / {target_subarea}）",
-    ]
-    for index, item in enumerate(matches, start=1):
-        city = item.get("city") or "未知城市"
-        district = item.get("district") or "未确定区"
-        subarea = item.get("subarea") or "未确定片区"
-        evidence = item.get("evidence") or "未提供明确地点线索"
-        lines.append(
-            f"{index}. [{item['customer_name']}|{item['customer_id']}]："
-            f"{city} / {district} / {subarea}；证据：{evidence}。"
-        )
-    return "\n".join(lines)
-
-
 def parse_json_object(text: str) -> dict | None:
     if not text:
         return None
@@ -793,37 +519,6 @@ def parse_json_object(text: str) -> dict | None:
 
 def chunk_items(items: list, size: int) -> list[list]:
     return [items[index : index + size] for index in range(0, len(items), size)]
-
-
-async def classify_target_area(target_area: str) -> dict:
-    """将地名归一化为城市/区/片区，用本地规则库优先。"""
-    from app.services.location_normalizer import LocationNormalizer
-    local_normalizer = LocationNormalizer()
-    local_hit = await local_normalizer.normalize(target_area)
-    if local_hit.get("location_city") or local_hit.get("location_district") or local_hit.get("location_subarea"):
-        return {
-            "city": local_hit.get("location_city") or "",
-            "district": local_hit.get("location_district") or "",
-            "subarea": local_hit.get("location_subarea") or "",
-            "confidence": "high",
-        }
-    return {"city": "", "district": "", "subarea": "", "confidence": "low"}
-
-
-async def build_area_customer_answer_with_llm(question: str, customer_contexts: list[dict]) -> str:
-    """地区客户查询：先用结构化字段精准匹配，匹配不到再用 LLM 提取。"""
-    target_area = extract_target_area(question)
-    target_classification = await classify_target_area(target_area)
-
-    usable_matches = collect_structured_location_matches(target_classification, customer_contexts)
-    if usable_matches:
-        usable_matches.sort(
-            key=lambda item: item["last_contact"] if item["last_contact"] != "从未联系" else "0000-00-00",
-            reverse=True,
-        )
-        return build_area_customer_answer_from_matches(target_area, target_classification, usable_matches)
-
-    return f"根据当前记录，没有找到与 {target_area} 相关的客户。"
 
 
 class AIService:
@@ -925,8 +620,150 @@ class AIService:
 
             return customer_contexts
 
-    async def _plan_customer_query(self, question: str, industry_key: str) -> dict | None:
-        if not looks_like_customer_query(question):
+    async def _build_single_customer_context(self, user_id: str, customer_id: str) -> dict | None:
+        async with async_session_factory() as session:
+            customer = await session.get(Customer, customer_id)
+            if not customer or customer.user_id != user_id or customer.deleted_at is not None:
+                return None
+
+            records_result = await session.execute(
+                select(Record).where(Record.customer_id == customer.id)
+                .order_by(Record.created_at.desc())
+                .limit(6)
+            )
+            recent_records = records_result.scalars().all()
+
+            count_result = await session.execute(
+                select(func.count()).where(Record.customer_id == customer.id)
+            )
+            records_count = count_result.scalar() or 0
+
+            return {
+                "id": customer.id,
+                "name": customer.name,
+                "phone": customer.phone or "未设置",
+                "gender": customer.gender or "未知",
+                "age": customer.age,
+                "location_raw": customer.location_raw or "未知",
+                "tags": customer.tags or [],
+                "summary": customer.summary_text or "暂无客户画像",
+                "summary_status": customer.summary_status,
+                "advice": customer.advice_text or "暂无下一步建议",
+                "advice_updated_at": customer.advice_updated_at.strftime("%Y-%m-%d %H:%M") if customer.advice_updated_at else "未知",
+                "records_count": records_count,
+                "recent_records": [
+                    {
+                        "created_at": record.created_at.strftime("%Y-%m-%d %H:%M"),
+                        "content": record.content,
+                        "location_raw": record.location_raw or "",
+                    }
+                    for record in recent_records
+                ],
+            }
+
+    async def _find_business_customer_matches(self, user_id: str, customer_name: str) -> list[dict]:
+        target = (customer_name or "").strip()
+        if not target:
+            return []
+
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(Customer).where(
+                    Customer.user_id == user_id,
+                    Customer.deleted_at.is_(None),
+                )
+            )
+            customers = result.scalars().all()
+
+        exact_matches = [customer for customer in customers if customer.name == target]
+        if exact_matches:
+            matched = exact_matches
+        else:
+            matched = [
+                customer
+                for customer in customers
+                if target in customer.name or customer.name in target
+            ]
+
+        return [
+            {
+                "id": customer.id,
+                "name": customer.name,
+                "phone": customer.phone or "未设置",
+                "tags": customer.tags or [],
+            }
+            for customer in matched[:8]
+        ]
+
+    def _format_single_customer_context(self, customer: dict) -> str:
+        tags = "、".join(customer.get("tags") or []) or "无"
+        age = customer.get("age") if customer.get("age") is not None else "未知"
+        lines = [
+            f"客户链接: [{customer['name']}|{customer['id']}]",
+            f"姓名: {customer['name']}",
+            f"电话: {customer.get('phone') or '未设置'}",
+            f"性别: {customer.get('gender') or '未知'}",
+            f"年龄: {age}",
+            f"地址: {customer.get('location_raw') or '未知'}",
+            f"标签: {tags}",
+            f"记录数量: {customer.get('records_count', 0)}",
+            f"客户画像状态: {customer.get('summary_status') or '未知'}",
+            "",
+            "【客户画像】",
+            customer.get("summary") or "暂无客户画像",
+            "",
+            "【下一步建议】",
+            customer.get("advice") or "暂无下一步建议",
+            "",
+            "【最近沟通记录】",
+        ]
+        records = customer.get("recent_records") or []
+        if not records:
+            lines.append("暂无沟通记录")
+        else:
+            for index, record in enumerate(records, start=1):
+                location = f"；地点：{record['location_raw']}" if record.get("location_raw") else ""
+                lines.append(f"{index}. {record['created_at']}{location}\n{record['content'][:700]}")
+        return "\n".join(lines)
+
+    async def _plan_assistant_intent(
+        self,
+        question: str,
+        industry_key: str,
+        recent_messages: list[dict] | None = None,
+    ) -> dict | None:
+        conversation_context = format_conversation_context(
+            normalize_recent_messages(recent_messages),
+        )
+        try:
+            kimi = KimiClient()
+            try:
+                raw_answer = await kimi.chat_simple(
+                    prompt=_assistant_intent_plan_prompt(
+                        question=question,
+                        conversation_context=conversation_context,
+                        industry_key=industry_key,
+                    ),
+                    system_prompt=_assistant_intent_plan_system(industry_key=industry_key),
+                )
+            finally:
+                await kimi.close()
+        except Exception:
+            logger.exception("[AI] Assistant intent planner failed")
+            return None
+
+        plan = validate_assistant_intent_plan(parse_json_object(raw_answer))
+        if not plan or plan.get("action") == "none":
+            return None
+        return plan
+
+    async def _plan_customer_query(
+        self,
+        question: str,
+        industry_key: str,
+        force: bool = False,
+    ) -> dict | None:
+        if not force and not looks_like_customer_query(question):
             return None
 
         try:
@@ -964,6 +801,215 @@ class AIService:
                 logger.exception("[AI] Location normalization failed for query plan")
 
         return plan
+
+    async def _answer_app_help(
+        self,
+        question: str,
+        industry_key: str,
+        recent_messages: list[dict] | None = None,
+    ) -> str:
+        conversation_context = format_conversation_context(
+            normalize_recent_messages(recent_messages),
+        )
+        try:
+            kimi = KimiClient()
+            try:
+                answer = await kimi.chat_simple(
+                    prompt=_app_help_qa_prompt(
+                        question=question,
+                        conversation_context=conversation_context,
+                        industry_key=industry_key,
+                    ),
+                    system_prompt=_app_help_qa_system(industry_key=industry_key),
+                )
+            finally:
+                await kimi.close()
+        except Exception:
+            logger.exception("[AI] App help answer failed")
+            return "服务暂时不可用，请稍后再试。"
+
+        if not answer or not answer.strip():
+            return "我暂时没有找到合适的产品用法说明。"
+        return answer.strip()
+
+    def _format_business_customer_contexts(self, customer_contexts: list[dict]) -> str:
+        if not customer_contexts:
+            return "无"
+
+        lines = []
+        for index, customer in enumerate(customer_contexts[:BUSINESS_CONTEXT_CUSTOMER_LIMIT], start=1):
+            tags = "、".join(customer.get("tags") or []) or "无"
+            summary = (customer.get("summary") or "暂无摘要").replace("\n", " ")[:160]
+            recent_records = (customer.get("recent_records") or "暂无最近记录").replace("\n", " ")[:220]
+            lines.append(
+                f"{index}. [{customer['name']}|{customer['id']}]\n"
+                f"- 标签: {tags}\n"
+                f"- 年龄: {customer.get('age') if customer.get('age') is not None else '未知'}\n"
+                f"- 地址: {customer.get('location_raw') or '未知'}\n"
+                f"- 最后联系: {customer.get('last_contact')}\n"
+                f"- 摘要: {summary}\n"
+                f"- 最近记录: {recent_records}"
+            )
+        if len(customer_contexts) > BUSINESS_CONTEXT_CUSTOMER_LIMIT:
+            lines.append(
+                f"另有 {len(customer_contexts) - BUSINESS_CONTEXT_CUSTOMER_LIMIT} 位客户未放入本次写作上下文。"
+            )
+        return "\n\n".join(lines)
+
+    async def _plan_business_assist_task(
+        self,
+        question: str,
+        industry_key: str,
+        recent_messages: list[dict] | None = None,
+    ) -> dict | None:
+        conversation_context = format_conversation_context(
+            normalize_recent_messages(recent_messages),
+        )
+        try:
+            kimi = KimiClient()
+            try:
+                raw_answer = await kimi.chat_simple(
+                    prompt=_business_assist_plan_prompt(
+                        question=question,
+                        conversation_context=conversation_context,
+                        industry_key=industry_key,
+                    ),
+                    system_prompt=_business_assist_plan_system(industry_key=industry_key),
+                )
+            finally:
+                await kimi.close()
+        except Exception:
+            logger.exception("[AI] Business assist planner failed")
+            return None
+
+        return validate_business_assist_plan(parse_json_object(raw_answer))
+
+    def _business_task_instructions(self, task_type: str) -> str:
+        if task_type == "wechat_message":
+            return (
+                "输出一段可直接发送给客户的微信文本。微信内容必须优先基于【客户画像】和【下一步建议】。"
+                "不要加入客户画像、下一步建议或用户本次问题中没有依据的具体事实。"
+                "最近沟通记录只能用来理解上下文，不能据此发挥新的承诺、需求判断或产品建议。"
+                "语气自然、克制、真诚，长度控制在 80-160 字。"
+                "不要使用过度营销、夸张承诺或客户资料中没有的事实。"
+            )
+        if task_type == "visit_brief":
+            return (
+                "输出会谈前简报，包含：客户现状、最近沟通重点、本次建议目标、"
+                "建议沟通顺序、需要确认的问题。控制在 5-8 个要点。"
+            )
+        if task_type == "last_visit_summary":
+            return (
+                "优先总结最近一次实质沟通或拜访，包含：沟通背景、客户表达、"
+                "顾虑/机会、待跟进事项。不要把久远记录混成一次拜访。"
+            )
+        if task_type == "next_step_advice":
+            return (
+                "输出 2-3 条下一步动作，每条说明动作、目的和沟通切入点。"
+                "如果信息不足，优先建议补充关键信息。"
+            )
+        if task_type == "question_checklist":
+            return (
+                "输出 3-5 个下次沟通应确认的问题。问题要具体、自然，"
+                "并简短说明每个问题为什么要问。"
+            )
+        return (
+            "围绕当前客户完成用户任务。输出结构清晰、简洁可用；"
+            "如果用户同时要总结和建议，可以分成“已知情况”和“建议下一步”。"
+        )
+
+    def _format_business_match_options(self, matches: list[dict]) -> str:
+        lines = ["我找到了多个可能的客户，请补充一下你指的是哪一位："]
+        for index, customer in enumerate(matches, start=1):
+            tags = "、".join(customer.get("tags") or []) or "无标签"
+            lines.append(f"{index}. [{customer['name']}|{customer['id']}]，电话：{customer['phone']}，标签：{tags}")
+        return "\n".join(lines)
+
+    def _has_generated_summary_and_advice(self, customer: dict) -> bool:
+        summary = str(customer.get("summary") or "").strip()
+        advice = str(customer.get("advice") or "").strip()
+        if not summary or summary == "暂无客户画像":
+            return False
+        if not advice or advice == "暂无下一步建议":
+            return False
+        return True
+
+    async def _answer_business_assist(
+        self,
+        user_id: str,
+        question: str,
+        industry_key: str,
+        recent_messages: list[dict] | None = None,
+        needs_customer_context: bool = False,
+    ) -> str:
+        conversation_context = format_conversation_context(
+            normalize_recent_messages(recent_messages),
+        )
+        _ = needs_customer_context
+        business_plan = await self._plan_business_assist_task(
+            question=question,
+            industry_key=industry_key,
+            recent_messages=recent_messages,
+        )
+        if not business_plan or not business_plan.get("customer_name"):
+            return (
+                "你想针对哪位客户处理这件事？可以这样问："
+                "“给蔡凤霞写一段跟进微信”、"
+                "“总结张建国上次拜访，并给出这次建议”、"
+                "“明天见王女士，帮我准备会谈简报”。"
+            )
+
+        matches = await self._find_business_customer_matches(
+            user_id=user_id,
+            customer_name=business_plan["customer_name"],
+        )
+        if not matches:
+            return (
+                f"我没有找到“{business_plan['customer_name']}”这位客户。"
+                "可以检查客户姓名，或先新建客户并保存一条沟通记录。"
+            )
+        if len(matches) > 1:
+            return self._format_business_match_options(matches)
+
+        customer_context = await self._build_single_customer_context(
+            user_id=user_id,
+            customer_id=matches[0]["id"],
+        )
+        if not customer_context:
+            return "我没能读取到这位客户的资料，请稍后再试。"
+
+        customer_context_text = self._format_single_customer_context(customer_context)
+        task_type = business_plan.get("task_type") or "general"
+        if task_type == "wechat_message" and not self._has_generated_summary_and_advice(customer_context):
+            return (
+                f"我还不能直接给 [{customer_context['name']}|{customer_context['id']}] 写微信，"
+                "因为这位客户还没有完整的客户画像和下一步建议。"
+                "请先在客户详情页生成或刷新画像和建议，或者先补充一条真实沟通记录。"
+            )
+
+        try:
+            kimi = KimiClient()
+            try:
+                answer = await kimi.chat_simple(
+                    prompt=_business_assist_prompt(
+                        question=question,
+                        customer_context_text=customer_context_text,
+                        conversation_context=conversation_context,
+                        task_type=task_type,
+                        task_instructions=self._business_task_instructions(task_type),
+                        industry_key=industry_key,
+                    ),
+                    system_prompt=_business_assist_system(industry_key=industry_key),
+                )
+            finally:
+                await kimi.close()
+        except Exception:
+            logger.exception("[AI] Business assist answer failed")
+            return "服务暂时不可用，请稍后再试。"
+
+        if not answer or not answer.strip():
+            return "我暂时没能生成合适的内容。"
+        return normalize_customer_links_and_tail(answer.strip())
 
     async def _execute_customer_query_plan(self, user_id: str, plan: dict) -> str:
         customer_contexts = await self._build_customer_contexts(user_id)
@@ -1052,148 +1098,39 @@ class AIService:
         recent_messages: list[dict] | None = None,
     ) -> str:
         industry_key = await self._get_user_industry_key(user_id)
-        needs_fast_context = (
-            is_list_all_customers_question(question) or
-            is_stale_contact_question(question) or
-            is_priority_customer_question(question)
-        )
-        customer_contexts = None
-
-        if needs_fast_context:
-            customer_contexts = await self._build_customer_contexts(user_id)
-
-            if is_list_all_customers_question(question):
-                return build_list_all_customers_answer(customer_contexts)
-
-            if is_stale_contact_question(question):
-                return build_stale_contact_answer(customer_contexts)
-
-            if is_priority_customer_question(question):
-                return build_priority_customers_answer(customer_contexts)
-
-        planned_query = await self._plan_customer_query(question, industry_key)
-        if planned_query:
-            return await self._execute_customer_query_plan(user_id, planned_query)
-
-        # 地区查询：直接 SQL 精准匹配，不过 LLM 猜
-        if looks_like_area_question(question):
-            try:
-                return await self._answer_area_question(question, user_id)
-            except Exception as e:
-                logger.exception(f"[AI] 地区查询异常: {e}")
-                return "服务暂时不可用，请稍后再试。"
-
-        if customer_contexts is None:
-            customer_contexts = await self._build_customer_contexts(user_id)
-
-        prompt_contexts, omitted_count = trim_global_fallback_contexts(customer_contexts)
-        conversation_context = format_conversation_context(
-            normalize_recent_messages(recent_messages),
-        )
-        context_text = "\n\n".join([
-            f"客户{i+1}: {c['name']} [ID:{c['id']}] (电话: {c['phone']})\n"
-            f"- 标签: {', '.join(c['tags']) if c['tags'] else '无'}\n"
-            f"- 年龄: {c['age'] if c.get('age') is not None else '未知'}\n"
-            f"- 摘要: {c['summary'][:100]}...\n"
-            f"- 最近记录: {c['recent_records'][:150]}...\n"
-            f"- 最后联系: {c['last_contact']}\n"
-            f"- 记录数: {c['records_count']}\n"
-            f"- 地址信息: {self._format_locations(c['structured_locations'])}"
-            for i, c in enumerate(prompt_contexts)
-        ])
-        if omitted_count:
-            context_text += (
-                f"\n\n【上下文裁剪说明】为控制 token，本次兜底问答只提供最近活跃的 "
-                f"{len(prompt_contexts)} 位客户，另有 {omitted_count} 位未放入 prompt。"
-            )
-
-        today = datetime.now().date()
-        stale_date = subtract_months(today, STALE_CONTACT_MONTHS)
-        prompt = _global_qa_prompt(
-            customer_context_text=context_text,
+        intent_plan = await self._plan_assistant_intent(
             question=question,
-            today_date=today.isoformat(),
-            stale_date=stale_date.isoformat(),
-            customer_count=len(customer_contexts),
-            conversation_context=conversation_context,
             industry_key=industry_key,
+            recent_messages=recent_messages,
         )
-
-        try:
-            kimi = KimiClient()
-            try:
-                answer = await kimi.chat_simple(
-                    prompt=prompt,
-                    system_prompt=_global_qa_system(industry_key=industry_key),
-                )
-            finally:
-                await kimi.close()
-
-            if not answer or not answer.strip():
-                answer = "抱歉，暂时无法回答这个问题。"
-
-        except Exception:
-            answer = "服务暂时不可用，请稍后再试。"
-
-        return normalize_customer_links_and_tail(answer)
-
-    async def _answer_area_question(self, question: str, user_id: str) -> str:
-        """根据客户地址字段做地区精准查询。"""
-        from app.services.location_normalizer import LocationNormalizer
-
-        # 1. 从问句提取地名并归一化
-        target_area = extract_target_area(question)
-        normalized = await LocationNormalizer().normalize(target_area)
-        target_district = normalized.get("location_district") or ""
-        target_subarea = normalized.get("location_subarea") or ""
-
-        if not (target_district or target_subarea):
-            return f"无法识别「{target_area}」所属区域，请提供更明确的地址。"
-
-        # 2. SQL 查询匹配的客户
-        from sqlalchemy import or_
-        query = select(Customer).where(
-            and_(
-                Customer.user_id == user_id,
-                Customer.deleted_at.is_(None),
-            )
-        )
-
-        if target_subarea:
-            query = query.where(
-                or_(
-                    Customer.location_subarea == target_subarea,
-                    Customer.location_district == target_subarea,
-                    Customer.location_raw.like(f"%{target_subarea}%"),
-                )
-            )
-        elif target_district:
-            query = query.where(
-                or_(
-                    Customer.location_district == target_district,
-                    Customer.location_raw.like(f"%{target_district}%"),
-                )
+        if not intent_plan:
+            return (
+                "我可以帮你做三类事：查客户数据、回答产品用法、处理业务写作/总结。"
+                "你可以直接说“列出两个月没联系的客户”“客户画像怎么生成”"
+                "或“帮我写一段约客户沟通的微信”。"
             )
 
-        async with async_session_factory() as session:
-            result = await session.execute(query)
-            customers = result.scalars().all()
+        action = intent_plan.get("action")
+        if action == "customer_query":
+            planned_query = await self._plan_customer_query(question, industry_key, force=True)
+            if planned_query:
+                return await self._execute_customer_query_plan(user_id, planned_query)
+            return "我理解你想查客户数据，但这次没有形成可执行的查询条件。可以换成更明确的条件再问一次。"
 
-        if not customers:
-            return f"当前没有找到与「{target_area}」相关的客户。"
+        if action == "app_help":
+            return await self._answer_app_help(
+                question=question,
+                industry_key=industry_key,
+                recent_messages=recent_messages,
+            )
 
-        lines = [f"根据客户地址信息，以下客户与「{target_area}」有关："]
-        for i, c in enumerate(customers, 1):
-            location = "/".join(filter(None, [c.location_city, c.location_district, c.location_subarea]))
-            evidence = f"（地址：{c.location_raw}）" if c.location_raw else ""
-            lines.append(f"{i}. [{c.name}|{c.id}]{evidence} — {location}")
+        if action == "business_assist":
+            return await self._answer_business_assist(
+                user_id=user_id,
+                question=question,
+                industry_key=industry_key,
+                recent_messages=recent_messages,
+                needs_customer_context=bool(intent_plan.get("needs_customer_context")),
+            )
 
-        return "\n".join(lines)
-
-    def _format_locations(self, structured_locations: list[dict]) -> str:
-        if not structured_locations:
-            return "无"
-        return " | ".join([
-            f"{loc['city'] or ''}{loc['district'] or ''}{loc['subarea'] or ''}({loc['raw'] or ''})"
-            for loc in structured_locations
-        ])
+        return "我还不太确定你想做什么。你可以让我查客户、问产品用法，或帮你写微信/简报/总结。"

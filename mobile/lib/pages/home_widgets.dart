@@ -312,7 +312,11 @@ class RecordFirstCard extends StatelessWidget {
   final VoidCallback onTap;
   final VoidCallback onCreateCustomer;
 
-  const RecordFirstCard({super.key, required this.onTap, required this.onCreateCustomer});
+  const RecordFirstCard({
+    super.key,
+    required this.onTap,
+    required this.onCreateCustomer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -328,76 +332,136 @@ class RecordFirstCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE7F5F2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: const Icon(Icons.edit_note_rounded,
-                      color: HomeColors.teal, size: 22),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        '记录第一次沟通',
-                        style: TextStyle(
-                          color: HomeColors.ink,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        '录音、文字或图片都可以，先记下来再归档到客户。',
-                        style: TextStyle(
-                          color: HomeColors.muted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+            const Text(
+              '先记录一次沟通',
+              style: TextStyle(
+                color: HomeColors.ink,
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-            const SizedBox(height: 14),
-            Row(
-              children: [
-                Expanded(
-                  child: FilledButton.icon(
-                    onPressed: onTap,
-                    icon: const Icon(Icons.mic_none_outlined, size: 18),
-                    label: const Text('开始记录'),
-                    style: FilledButton.styleFrom(
-                      backgroundColor: HomeColors.teal,
-                      minimumSize: const Size.fromHeight(44),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: onCreateCustomer,
-                    icon: const Icon(Icons.person_add_outlined, size: 18),
-                    label: const Text('直接新建客户'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: HomeColors.teal,
-                      minimumSize: const Size.fromHeight(44),
-                      side: const BorderSide(color: HomeColors.teal),
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                    ),
-                  ),
-                ),
-              ],
+            const SizedBox(height: 6),
+            const Text(
+              '你可以用文字、语音或图片记录，保存后 AI 会自动生成客户画像和下一步建议。',
+              style: TextStyle(
+                color: HomeColors.muted,
+                fontSize: 13,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 16),
+            _NewUserActionButton(
+              onTap: onTap,
+              icon: Icons.mic_none_outlined,
+              title: '开始记录',
+              subtitle: '文字、语音或图片都可以',
+              backgroundColor: HomeColors.teal,
+              foregroundColor: Colors.white,
+              iconBackgroundColor: Colors.white24,
+              borderColor: HomeColors.teal,
+              shadowColor: HomeColors.teal.withAlpha(45),
+            ),
+            const SizedBox(height: 10),
+            _NewUserActionButton(
+              onTap: onCreateCustomer,
+              icon: Icons.person_add_alt_1_outlined,
+              title: '直接新建客户',
+              subtitle: '先填写客户姓名和基础资料',
+              backgroundColor: Colors.white,
+              foregroundColor: HomeColors.teal,
+              iconBackgroundColor: const Color(0xFFE7F5F2),
+              borderColor: const Color(0xFF9DD7CE),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NewUserActionButton extends StatelessWidget {
+  final VoidCallback onTap;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Color backgroundColor;
+  final Color foregroundColor;
+  final Color iconBackgroundColor;
+  final Color borderColor;
+  final Color? shadowColor;
+
+  const _NewUserActionButton({
+    required this.onTap,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.backgroundColor,
+    required this.foregroundColor,
+    required this.iconBackgroundColor,
+    required this.borderColor,
+    this.shadowColor,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: backgroundColor,
+      borderRadius: BorderRadius.circular(8),
+      elevation: shadowColor == null ? 0 : 2,
+      shadowColor: shadowColor,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 68),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: iconBackgroundColor,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: foregroundColor, size: 22),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: foregroundColor,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: foregroundColor.withAlpha(210),
+                        fontSize: 12,
+                        height: 1.25,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: foregroundColor.withAlpha(190),
+              ),
+            ],
+          ),
         ),
       ),
     );

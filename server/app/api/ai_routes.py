@@ -50,7 +50,7 @@ class AIChatResponse(BaseModel):
 @router.post(
     "/ai/chat",
     summary="全局业务问答",
-    description="基于用户所有客户信息进行业务问答",
+    description="支持客户数据查询、产品用法问答，以及围绕单个客户的跟进协作",
     response_description="AI 回答",
 )
 async def ai_chat(
@@ -61,8 +61,10 @@ async def ai_chat(
     """
     全局业务问答
 
-    基于当前用户的客户列表和摘要信息回答问题。
-    适用于：列出所有客户、找出多久未联系的客户等全局查询。
+    基于当前用户的问题自动分流：
+    - 客户数据查询
+    - 产品用法问答
+    - 围绕单个客户的跟进协作
     """
     recent_messages = [
         {"role": message.role, "content": message.content}

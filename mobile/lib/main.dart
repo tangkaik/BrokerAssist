@@ -6,6 +6,7 @@ import 'pages/ai_chat_page.dart';
 import 'pages/login_page.dart';
 import 'pages/account_page.dart';
 import 'services/api_config.dart';
+import 'services/api.dart';
 import 'services/auth_session.dart';
 import 'services/api_error_handler.dart';
 import 'services/industry_settings.dart';
@@ -34,6 +35,7 @@ class _MyAppState extends State<MyApp> {
   void initState() {
     super.initState();
     AuthSession.authVersion.addListener(_syncAuthState);
+    _refreshCurrentUser();
   }
 
   @override
@@ -45,6 +47,21 @@ class _MyAppState extends State<MyApp> {
   void _syncAuthState() {
     if (!mounted) return;
     setState(() => _isAuthenticated = AuthSession.isLoggedIn);
+  }
+
+  Future<void> _refreshCurrentUser() async {
+    if (!AuthSession.isLoggedIn) return;
+    final response = await apiService.me();
+    if (!mounted) return;
+    if (response.success && response.data != null) {
+      await AuthSession.updateUser(response.data!);
+      await IndustrySettings.load();
+    } else if (response.error?.code == 'UNAUTHORIZED' ||
+        response.error?.code == 'HTTP_401') {
+      await AuthSession.clear();
+      IndustrySettings.resetInMemory();
+    }
+    _syncAuthState();
   }
 
   Future<void> _handleAuthenticated(AuthSessionData session) async {

@@ -143,37 +143,6 @@ def location_classify_system() -> str:
     return get_prompts()["location_classify_system"]
 
 
-# ---- 全局 AI 问答 ----
-
-def global_qa(
-    customer_context_text: str,
-    question: str,
-    today_date: str,
-    stale_date: str,
-    customer_count: int,
-    conversation_context: str = "无",
-    industry_key: str | None = None,
-) -> str:
-    """全局 AI 问答的 prompt（模板）。"""
-    tmpl = get_prompts()["global_qa"]
-    return tmpl.format(
-        customer_context_text=customer_context_text,
-        question=question,
-        today_date=today_date,
-        stale_date=stale_date,
-        _customer_count=customer_count,
-        conversation_context=conversation_context,
-        **_industry_format_args(industry_key),
-    )
-
-
-def global_qa_system(industry_key: str | None = None) -> str:
-    """全局 AI 问答的 system prompt。"""
-    return get_prompts()["global_qa_system"].format(
-        **_industry_format_args(industry_key)
-    )
-
-
 def customer_query_plan(question: str, industry_key: str | None = None) -> str:
     """客户查询规划 prompt（模板）。"""
     tmpl = get_prompts()["customer_query_plan"]
@@ -183,6 +152,96 @@ def customer_query_plan(question: str, industry_key: str | None = None) -> str:
 def customer_query_plan_system(industry_key: str | None = None) -> str:
     """客户查询规划 system prompt。"""
     return get_prompts()["customer_query_plan_system"].format(
+        **_industry_format_args(industry_key)
+    )
+
+
+def assistant_intent_plan(
+    question: str,
+    conversation_context: str = "无",
+    industry_key: str | None = None,
+) -> str:
+    """AI 助手意图规划 prompt（模板）。"""
+    tmpl = get_prompts()["assistant_intent_plan"]
+    return tmpl.format(
+        question=question,
+        conversation_context=conversation_context,
+        **_industry_format_args(industry_key),
+    )
+
+
+def assistant_intent_plan_system(industry_key: str | None = None) -> str:
+    """AI 助手意图规划 system prompt。"""
+    return get_prompts()["assistant_intent_plan_system"].format(
+        **_industry_format_args(industry_key)
+    )
+
+
+def app_help_qa(
+    question: str,
+    conversation_context: str = "无",
+    industry_key: str | None = None,
+) -> str:
+    """产品用法问答 prompt（模板）。"""
+    tmpl = get_prompts()["app_help_qa"]
+    return tmpl.format(
+        question=question,
+        conversation_context=conversation_context,
+        **_industry_format_args(industry_key),
+    )
+
+
+def app_help_qa_system(industry_key: str | None = None) -> str:
+    """产品用法问答 system prompt。"""
+    return get_prompts()["app_help_qa_system"].format(
+        **_industry_format_args(industry_key)
+    )
+
+
+def business_assist_plan(
+    question: str,
+    conversation_context: str = "无",
+    industry_key: str | None = None,
+) -> str:
+    """单客户业务助手任务规划 prompt（模板）。"""
+    tmpl = get_prompts()["business_assist_plan"]
+    return tmpl.format(
+        question=question,
+        conversation_context=conversation_context,
+        **_industry_format_args(industry_key),
+    )
+
+
+def business_assist_plan_system(industry_key: str | None = None) -> str:
+    """单客户业务助手任务规划 system prompt。"""
+    return get_prompts()["business_assist_plan_system"].format(
+        **_industry_format_args(industry_key)
+    )
+
+
+def business_assist(
+    question: str,
+    customer_context_text: str = "无",
+    conversation_context: str = "无",
+    task_type: str = "general",
+    task_instructions: str = "",
+    industry_key: str | None = None,
+) -> str:
+    """单客户业务辅助 prompt（模板）。"""
+    tmpl = get_prompts()["business_assist"]
+    return tmpl.format(
+        question=question,
+        customer_context_text=customer_context_text,
+        conversation_context=conversation_context,
+        task_type=task_type,
+        task_instructions=task_instructions,
+        **_industry_format_args(industry_key),
+    )
+
+
+def business_assist_system(industry_key: str | None = None) -> str:
+    """通用业务辅助 system prompt。"""
+    return get_prompts()["business_assist_system"].format(
         **_industry_format_args(industry_key)
     )
 
