@@ -47,7 +47,7 @@ def get_transcription_service(
 @router.post(
     "/transcriptions/upload",
     summary="上传音频并转写",
-    description="上传音频文件到 Supabase Storage，并调用讯飞进行语音转写",
+    description="接收音频文件并直接调用讯飞进行语音转写，不保存原始录音",
     response_description="转写任务ID和转写结果",
 )
 async def upload_and_transcribe(
@@ -64,9 +64,8 @@ async def upload_and_transcribe(
     
     流程：
     1. 验证客户权限
-    2. 上传文件到 Supabase Storage
-    3. 调用讯飞语音转写
-    4. 返回转写结果
+    2. 调用讯飞语音转写
+    3. 返回转写结果
     """
     # 读取文件内容
     file_content = await file.read()

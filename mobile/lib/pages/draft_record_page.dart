@@ -555,7 +555,10 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
       appBar: AppBar(
         title: GestureDetector(
           onLongPress: () {
-            Navigator.push(context, MaterialPageRoute(builder: (_) => ApiSettingsPage()));
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => ApiSettingsPage()),
+            );
           },
           child: const Text('记录沟通'),
         ),
@@ -572,43 +575,80 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         ],
       ),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (_hasPreSelectedCustomer)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  margin: const EdgeInsets.only(bottom: 8),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE7F5F2),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: Row(
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
+            if (keyboardVisible) {
+              return SingleChildScrollView(
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.person, color: _teal, size: 20),
-                      const SizedBox(width: 8),
-                      Text(
-                        '记录给：${widget.customerName ?? "客户"}',
-                        style: const TextStyle(
-                          color: _teal,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
+                      _buildSelectedCustomerBanner(),
+                      SizedBox(
+                        height: 280,
+                        child: _buildTextArea(expanded: false),
                       ),
+                      const SizedBox(height: 12),
+                      _buildBottomActions(),
                     ],
                   ),
                 ),
-              _buildIntroCard(),
-              const SizedBox(height: 14),
-              Expanded(child: _buildTextArea(expanded: true)),
-              const SizedBox(height: 12),
-              _buildBottomActions(),
-            ],
-          ),
+              );
+            }
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _buildSelectedCustomerBanner(),
+                  _buildIntroCard(),
+                  const SizedBox(height: 14),
+                  Expanded(child: _buildTextArea(expanded: true)),
+                  const SizedBox(height: 12),
+                  _buildBottomActions(),
+                ],
+              ),
+            );
+          },
         ),
+      ),
+    );
+  }
+
+  Widget _buildSelectedCustomerBanner() {
+    if (!_hasPreSelectedCustomer) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      margin: const EdgeInsets.only(bottom: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFE7F5F2),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.person, color: _teal, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              '记录给：${widget.customerName ?? "客户"}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: _teal,
+                fontWeight: FontWeight.w700,
+                fontSize: 15,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -640,11 +680,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
               const Expanded(
                 child: Text(
                   '1. 写下或录音记录本次沟通\n2. 提交到新客户或已有客户\n3. AI 自动整理画像和跟进建议',
-                  style: TextStyle(
-                    color: _ink,
-                    fontSize: 13,
-                    height: 1.45,
-                  ),
+                  style: TextStyle(color: _ink, fontSize: 13, height: 1.45),
                 ),
               ),
             ],
@@ -657,6 +693,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   /// 构建文本输入区域
   Widget _buildTextArea({bool expanded = false}) {
     return Container(
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
@@ -707,18 +744,46 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   }
 
   Widget _buildRecordTextField({bool expanded = false}) {
-    return TextField(
+    final field = TextField(
       controller: _textController,
-      expands: expanded,
-      maxLines: expanded ? null : 10,
+      maxLines: null,
       minLines: expanded ? null : 6,
+      expands: expanded,
+      keyboardType: TextInputType.multiline,
+      textInputAction: TextInputAction.newline,
       textAlignVertical: TextAlignVertical.top,
+      scrollPadding: const EdgeInsets.fromLTRB(16, 24, 16, 160),
       decoration: InputDecoration(
         hintText: '记录这次拜访聊了什么，客户有什么需求、顾虑、下一步动作...',
         hintStyle: TextStyle(color: Colors.grey.shade400, height: 1.5),
         contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
         border: InputBorder.none,
       ),
+      style: const TextStyle(fontSize: 15, height: 1.5),
+    );
+
+    if (expanded) {
+      return ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 180),
+        child: field,
+      );
+    }
+
+    return TextField(
+      controller: _textController,
+      maxLines: 10,
+      minLines: 6,
+      keyboardType: TextInputType.multiline,
+      textInputAction: TextInputAction.newline,
+      textAlignVertical: TextAlignVertical.top,
+      scrollPadding: const EdgeInsets.fromLTRB(16, 24, 16, 160),
+      decoration: InputDecoration(
+        hintText: '记录这次拜访聊了什么，客户有什么需求、顾虑、下一步动作...',
+        hintStyle: TextStyle(color: Colors.grey.shade400, height: 1.5),
+        contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        border: InputBorder.none,
+      ),
+      style: const TextStyle(fontSize: 15, height: 1.5),
     );
   }
 
@@ -1122,18 +1187,30 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
       return SizedBox(
         width: double.infinity,
         child: FilledButton.icon(
-          onPressed: _hasTextContent && !_isSubmitting ? _submitToPreSelectedCustomer : null,
+          onPressed: _hasTextContent && !_isSubmitting
+              ? _submitToPreSelectedCustomer
+              : null,
           icon: _isSubmitting
-              ? const SizedBox(width: 18, height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
               : const Icon(Icons.check_rounded, size: 20),
-          label: Text(_isSubmitting ? '保存中...' : '保存到${widget.customerName ?? "客户"}'),
+          label: Text(
+            _isSubmitting ? '保存中...' : '保存到${widget.customerName ?? "客户"}',
+          ),
           style: FilledButton.styleFrom(
             backgroundColor: _teal,
             foregroundColor: Colors.white,
             minimumSize: const Size.fromHeight(52),
             padding: const EdgeInsets.symmetric(vertical: 14),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
             disabledBackgroundColor: Colors.grey.shade200,
             disabledForegroundColor: Colors.grey.shade500,
           ),

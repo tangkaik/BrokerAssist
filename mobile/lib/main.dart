@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'pages/home_page.dart';
 import 'pages/customer_list_page.dart';
@@ -110,6 +111,7 @@ class MainNavigationScreen extends StatefulWidget {
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
+  final List<int> _tabHistory = [];
 
   final _keys = [
     GlobalKey<NavigatorState>(),
@@ -146,29 +148,53 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
       (Icons.person_outline, Icons.person, '我的'),
     ];
 
-    return Scaffold(
-      body: IndexedStack(
-        index: _currentIndex,
-        children: List.generate(4, _buildTab),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _currentIndex,
-        onDestinationSelected: (index) {
-          // 如果点击当前 Tab，pop 到根页面
-          if (index == _currentIndex) {
-            _keys[index].currentState?.popUntil((route) => route.isFirst);
-          }
-          setState(() => _currentIndex = index);
-        },
-        destinations: navItems
-            .map(
-              (item) => NavigationDestination(
-                icon: Icon(item.$1),
-                selectedIcon: Icon(item.$2),
-                label: item.$3,
-              ),
-            )
-            .toList(),
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) async {
+        if (didPop) return;
+
+        final currentNavigator = _keys[_currentIndex].currentState;
+        if (currentNavigator != null && await currentNavigator.maybePop()) {
+          return;
+        }
+
+        if (_tabHistory.isNotEmpty) {
+          setState(() => _currentIndex = _tabHistory.removeLast());
+          return;
+        }
+
+        SystemNavigator.pop();
+      },
+      child: Scaffold(
+        body: IndexedStack(
+          index: _currentIndex,
+          children: List.generate(4, _buildTab),
+        ),
+        bottomNavigationBar: NavigationBar(
+          selectedIndex: _currentIndex,
+          onDestinationSelected: (index) {
+            // 如果点击当前 Tab，pop 到根页面
+            if (index == _currentIndex) {
+              _keys[index].currentState?.popUntil((route) => route.isFirst);
+              return;
+            }
+
+            setState(() {
+              _tabHistory.remove(index);
+              _tabHistory.add(_currentIndex);
+              _currentIndex = index;
+            });
+          },
+          destinations: navItems
+              .map(
+                (item) => NavigationDestination(
+                  icon: Icon(item.$1),
+                  selectedIcon: Icon(item.$2),
+                  label: item.$3,
+                ),
+              )
+              .toList(),
+        ),
       ),
     );
   }

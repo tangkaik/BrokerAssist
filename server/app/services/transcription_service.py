@@ -2,7 +2,6 @@
 音频转写任务管理服务
 
 封装转写任务相关的所有业务逻辑：
-- 上传音频到 Supabase Storage
 - 创建转写任务
 - 调用讯飞转写
 - 保存转写结果
@@ -36,7 +35,6 @@ from app.schemas.transcription import (
 )
 from app.services.xunfei_service import XunfeiService
 from app.services.record_service import RecordService
-from app.storage.supabase_storage import SupabaseStorage
 from app.schemas.record import RecordCreate
 
 
@@ -59,16 +57,14 @@ class TranscriptionService:
     def __init__(
         self,
         session: AsyncSession,
-        storage: Optional[SupabaseStorage] = None,
         xunfei: Optional[XunfeiService] = None,
     ):
         self.session = session
-        self.storage = storage or SupabaseStorage()
         self.xunfei = xunfei or XunfeiService()
     
     def _sanitize_filename(self, file_name: str) -> str:
         """
-        生成安全文件名（用于 Storage）
+        生成安全文件名（用于转写任务）
         
         规则：
         1. 只允许 ASCII 字母、数字、下划线
@@ -153,15 +149,14 @@ class TranscriptionService:
         """
         上传音频并执行转写
         
-        执行顺序（关键：先 DB 后操作）：
+        执行顺序（关键：先 DB 后转写）：
         1. 校验客户权限
         2. 校验文件
         3. 生成安全文件名
         4. 【创建 DB 记录】status=pending
-        5. 上传 Storage
-        6. 更新 DB status=transcribing
-        7. 调用讯飞转写
-        8. 更新 DB 最终结果
+        5. 更新 DB status=transcribing
+        6. 调用讯飞转写
+        7. 更新 DB 最终结果
         
         任何步骤失败：更新 DB status=failed，记录 error_message
         """
@@ -208,7 +203,7 @@ class TranscriptionService:
                 customer_id=customer_id,
                 original_name=original_name,
                 file_name=safe_file_name,
-                file_path="",  # 临时，上传后更新
+                file_path="",  # 不保存原始录音，仅保留转写结果
                 file_size=file_size,
                 status="pending",  # 初始状态
                 transcript_text=None,
@@ -219,39 +214,12 @@ class TranscriptionService:
             await self.session.flush()
             logger.info(f"[DB] Created transcription {transcription_id} with status=pending")
             
-            # ========== 步骤 5: 上传 Storage ==========
-            try:
-                file_url = await self.storage.upload_file(
-                    file_data=file_content,
-                    file_name=safe_file_name,
-                    user_id=user_id,
-                    folder="transcriptions",
-                    content_type="audio/wav",
-                )
-                # 更新路径
-                transcription.file_path = file_url
-                await self.session.flush()
-                logger.info(f"[Storage] Uploaded to {file_url}")
-            except Exception as e:
-                error_detail = f"[存储上传]{str(e)}"
-                logger.error(error_detail)
-                transcription.status = "failed"
-                transcription.error_message = error_detail
-                await self.session.flush()
-                return TranscriptionUploadResponse(
-                    transcription_id=transcription_id,
-                    status="failed",
-                    original_name=original_name,
-                    transcript_text=None,
-                    error_message=error_detail,
-                )
-            
-            # ========== 步骤 6: 更新状态为转写中 ==========
+            # ========== 步骤 5: 更新状态为转写中 ==========
             transcription.status = "transcribing"
             await self.session.flush()
             logger.info(f"[DB] Updated status to transcribing")
             
-            # ========== 步骤 7: 调用讯飞创建任务 ==========
+            # ========== 步骤 6: 调用讯飞创建任务 ==========
             order_id, error = await self.xunfei.upload_and_create_task(
                 audio_data=file_content,
                 file_name=safe_file_name,
@@ -271,7 +239,7 @@ class TranscriptionService:
                     error_message=error_detail,
                 )
             
-            # ========== 步骤 8: 轮询获取结果 ==========
+            # ========== 步骤 7: 轮询获取结果 ==========
             logger.info(f"[Xunfei] Waiting for result, order_id={order_id}")
             transcript_text, error = await self.xunfei.get_transcribe_result(
                 order_id=order_id,
