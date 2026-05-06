@@ -11,7 +11,7 @@ from app.core.industry_profiles import normalize_industry_key
 
 class RegisterRequest(BaseModel):
     account: str = Field(..., min_length=2, max_length=120, description="登录账号")
-    password: str = Field(..., min_length=3, max_length=128, description="密码")
+    password: str = Field(..., min_length=8, max_length=128, description="密码")
     name: Optional[str] = Field(None, max_length=100, description="昵称")
 
     @field_validator("account")
@@ -30,6 +30,7 @@ class RegisterRequest(BaseModel):
 
 class LoginRequest(BaseModel):
     account: str = Field(..., min_length=2, max_length=120, description="登录账号")
+    # 登录保留 3 位下限，避免锁死已有 t1/t2 测试账号；新注册走 8 位密码要求。
     password: str = Field(..., min_length=3, max_length=128, description="密码")
 
     @field_validator("account")

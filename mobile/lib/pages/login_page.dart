@@ -162,9 +162,9 @@ class _LoginPageState extends State<LoginPage> {
                               TextFormField(
                                 controller: _registerPasswordController,
                                 obscureText: true,
-                                decoration: _inputDecoration('密码', hint: '至少 3 位'),
-                                validator: (value) => (value == null || value.length < 3)
-                                    ? '密码至少 3 位'
+                                decoration: _inputDecoration('密码', hint: '至少 8 位'),
+                                validator: (value) => (value == null || value.length < 8)
+                                    ? '密码至少 8 位'
                                     : null,
                               ),
                               const SizedBox(height: 16),
