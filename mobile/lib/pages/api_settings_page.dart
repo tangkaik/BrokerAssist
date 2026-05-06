@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'analytics_export_page.dart';
 import '../services/api_config.dart';
 
 /// API 地址设置页
@@ -219,7 +220,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
               margin: const EdgeInsets.only(bottom: 16),
               child: OutlinedButton.icon(
                 onPressed: () {
-                  Navigator.pushNamed(context, '/analytics-export');
+                  Navigator.push(context, MaterialPageRoute(builder: (_) => const AnalyticsExportPage()));
                 },
                 icon: const Icon(Icons.analytics, color: Colors.green),
                 label: const Text(

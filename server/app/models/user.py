@@ -4,7 +4,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import DateTime, String, func
+from sqlalchemy import Boolean, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -36,6 +36,20 @@ class User(Base):
         String(100),
         nullable=True,
         comment="昵称",
+    )
+    industry_key: Mapped[str] = mapped_column(
+        String(40),
+        nullable=False,
+        default="generic",
+        server_default="generic",
+        comment="当前行业设置",
+    )
+    industry_selected: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+        comment="是否已完成首次行业选择",
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

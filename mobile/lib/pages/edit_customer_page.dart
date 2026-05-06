@@ -16,6 +16,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _ageController = TextEditingController();
   final _locationController = TextEditingController();
   String? _selectedGender;
   final List<String> _tags = [];
@@ -49,6 +50,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
   void dispose() {
     _nameController.dispose();
     _phoneController.dispose();
+    _ageController.dispose();
     _locationController.dispose();
     _tagController.dispose();
     super.dispose();
@@ -62,8 +64,9 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
         _customer = customer;
         _nameController.text = customer.name;
         _phoneController.text = customer.phone ?? '';
+        _ageController.text = customer.age?.toString() ?? '';
         _locationController.text = customer.locationRaw ?? '';
-        _selectedGender = customer.gender;
+        _selectedGender = _normalizeGender(customer.gender);
         _tags.addAll(customer.tags);
         _isLoading = false;
       });
@@ -73,6 +76,14 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
         _error = response.error?.message ?? '加载客户失败';
       });
     }
+  }
+
+  String? _normalizeGender(String? gender) {
+    final value = gender?.trim().toLowerCase();
+    if (value == null || value.isEmpty) return null;
+    if (value == 'male' || value == 'm' || value == '男') return 'male';
+    if (value == 'female' || value == 'f' || value == '女') return 'female';
+    return null;
   }
 
   void _addTag() {
@@ -106,6 +117,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
           ? _phoneController.text.trim()
           : null,
       gender: _selectedGender,
+      age: int.tryParse(_ageController.text.trim()),
       location: _locationController.text.trim().isNotEmpty
           ? _locationController.text.trim()
           : null,
@@ -232,10 +244,10 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
                               const SizedBox(width: 16),
                               Expanded(
                                 child: TextFormField(
-                                  controller: _locationController,
+                                  controller: _ageController,
+                                  keyboardType: TextInputType.number,
                                   decoration: InputDecoration(
-                                    labelText: '地址',
-                                    hintText: '如：望京SOHO',
+                                    labelText: '年龄',
                                     border: OutlineInputBorder(
                                       borderRadius: BorderRadius.circular(8),
                                     ),
@@ -243,6 +255,17 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
                                 ),
                               ),
                             ],
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _locationController,
+                            decoration: InputDecoration(
+                              labelText: '客户主地址',
+                              hintText: '如：望京SOHO',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
                           Text(
@@ -257,7 +280,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
                           Row(
                             children: [
                               Expanded(
-                                child: TextField(
+                                child: TextFormField(
                                   controller: _tagController,
                                   decoration: InputDecoration(
                                     hintText: '输入标签后按回车添加',
@@ -273,7 +296,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
                                       borderRadius: BorderRadius.circular(8),
                                     ),
                                   ),
-                                  onSubmitted: (_) => _addTag(),
+                                  onFieldSubmitted: (_) => _addTag(),
                                 ),
                               ),
                               const SizedBox(width: 8),

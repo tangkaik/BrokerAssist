@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import 'api_settings_page.dart';
 
 class LoginPage extends StatefulWidget {
   final Future<void> Function(AuthSessionData session) onAuthenticated;
@@ -153,17 +154,17 @@ class _LoginPageState extends State<LoginPage> {
                               TextFormField(
                                 controller: _registerAccountController,
                                 decoration: _inputDecoration('账号', hint: '手机号或邮箱'),
-                                validator: (value) => (value == null || value.trim().length < 3)
-                                    ? '请输入至少 3 位账号'
+                                validator: (value) => (value == null || value.trim().length < 2)
+                                    ? '请输入至少 2 位账号'
                                     : null,
                               ),
                               const SizedBox(height: 12),
                               TextFormField(
                                 controller: _registerPasswordController,
                                 obscureText: true,
-                                decoration: _inputDecoration('密码', hint: '至少 6 位'),
-                                validator: (value) => (value == null || value.length < 6)
-                                    ? '密码至少 6 位'
+                                decoration: _inputDecoration('密码', hint: '至少 3 位'),
+                                validator: (value) => (value == null || value.length < 3)
+                                    ? '密码至少 3 位'
                                     : null,
                               ),
                               const SizedBox(height: 16),
@@ -185,17 +186,17 @@ class _LoginPageState extends State<LoginPage> {
                               TextFormField(
                                 controller: _loginAccountController,
                                 decoration: _inputDecoration('账号', hint: '手机号或邮箱'),
-                                validator: (value) => (value == null || value.trim().length < 3)
-                                    ? '请输入至少 3 位账号'
+                                validator: (value) => (value == null || value.trim().length < 2)
+                                    ? '请输入至少 2 位账号'
                                     : null,
                               ),
                               const SizedBox(height: 12),
                               TextFormField(
                                 controller: _loginPasswordController,
                                 obscureText: true,
-                                decoration: _inputDecoration('密码', hint: '至少 6 位'),
-                                validator: (value) => (value == null || value.length < 6)
-                                    ? '密码至少 6 位'
+                                decoration: _inputDecoration('密码', hint: '至少 3 位'),
+                                validator: (value) => (value == null || value.length < 3)
+                                    ? '密码至少 3 位'
                                     : null,
                               ),
                               const SizedBox(height: 16),
@@ -213,7 +214,7 @@ class _LoginPageState extends State<LoginPage> {
                       Align(
                         alignment: Alignment.centerRight,
                         child: TextButton(
-                          onPressed: () => Navigator.pushNamed(context, '/api-settings'),
+                          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ApiSettingsPage())),
                           child: const Text('API 设置'),
                         ),
                       ),

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../services/auth_session.dart';
 import '../services/industry_settings.dart';
-import '../widgets/industry_picker.dart';
+import 'api_settings_page.dart';
 
 class AccountPage extends StatefulWidget {
   final Future<void> Function() onLogout;
@@ -14,18 +14,6 @@ class AccountPage extends StatefulWidget {
 }
 
 class _AccountPageState extends State<AccountPage> {
-  Future<void> _changeIndustry() async {
-    final selected = await showIndustryPicker(
-      context,
-      current: IndustrySettings.current,
-      title: '修改行业',
-      subtitle: '修改后，后续首页、客户画像和跟进建议会逐步按新行业方向组织。',
-    );
-    if (selected != null) {
-      await IndustrySettings.save(selected);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final user = AuthSession.currentUser;
@@ -60,16 +48,17 @@ class _AccountPageState extends State<AccountPage> {
               return ListTile(
                 leading: const Icon(Icons.work_outline_rounded),
                 title: const Text('行业设置'),
-                subtitle: Text(industry.workspaceLabel),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: _changeIndustry,
+                subtitle: Text('已锁定：${industry.workspaceLabel}'),
               );
             },
           ),
           ListTile(
             leading: const Icon(Icons.settings_outlined),
             title: const Text('API 设置'),
-            onTap: () => Navigator.pushNamed(context, '/api-settings'),
+            onTap: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => ApiSettingsPage()),
+            ),
           ),
           const SizedBox(height: 24),
           ElevatedButton.icon(

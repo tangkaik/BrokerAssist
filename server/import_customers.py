@@ -6,6 +6,7 @@
 """
 
 import asyncio
+import argparse
 import json
 import sys
 from datetime import datetime, timedelta
@@ -16,6 +17,7 @@ sys.path.insert(0, '/Users/kaitang/Desktop/【保险助手】/BrokerAssist/serve
 from app.db.session import async_session_factory
 from app.models.customer import Customer
 from app.models.record import Record
+from app.models.user import User
 from sqlalchemy import delete, select
 
 # 测试数据
@@ -243,6 +245,197 @@ TEST_DATA = {
 }
 
 
+REAL_ESTATE_TEST_DATA = {
+  "customers": [
+    {
+      "name": "林佳怡",
+      "gender": "女",
+      "age": 32,
+      "tags": ["首套刚需", "预算敏感", "通勤优先", "二居"],
+      "phone": "13671028495",
+      "location": {"raw": "北京市朝阳区望京", "city": "北京市", "district": "朝阳区", "subarea": "望京"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户32岁，在望京互联网公司做产品经理，目前租住在望京西附近。首次购房，预算总价控制在450万以内，首付约180万。客户明确希望通勤时间控制在40分钟以内，优先考虑朝阳、海淀交界区域，二居即可，不强求新房。"
+        },
+        {
+          "type": "text",
+          "content": "第二次沟通重点聊贷款压力。客户担心月供超过收入的40%，希望先看总价稳定、税费清楚、物业成熟的小区。客户父母可以补充一部分首付，但不希望过度依赖家庭支持。客户对老小区能接受，但要求电梯或低楼层。"
+        },
+        {
+          "type": "text",
+          "content": "最近带看了两套望京周边二手房。客户喜欢其中一套的通勤和小区环境，但觉得客厅采光一般。客户希望下次再对比一套朝阳公园方向的房源，重点看通勤、采光和未来转手流动性。"
+        }
+      ]
+    },
+    {
+      "name": "周明哲",
+      "gender": "男",
+      "age": 39,
+      "tags": ["改善三居", "学区关注", "预算充足", "家庭决策"],
+      "phone": "13810573942",
+      "location": {"raw": "北京市海淀区中关村", "city": "北京市", "district": "海淀区", "subarea": "中关村"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户39岁，已婚，有一个7岁孩子，目前住在海淀两居，想改善到三居。家庭预算总价约1200万以内，核心诉求是孩子上学和老人偶尔同住，关注中关村、万柳、苏州桥一带。客户本人更关注通勤，爱人更关注学校和小区品质。"
+        },
+        {
+          "type": "text",
+          "content": "客户已经看过三套房，对楼龄、物业和停车都比较敏感。客户觉得一套万柳房源位置很好，但价格偏高，担心议价空间有限。爱人倾向一步到位，客户本人希望不要把月供压力拉太满。"
+        },
+        {
+          "type": "text",
+          "content": "回访时客户提出希望下次看房前先做一个三套候选房源对比表，包括总价、单价、学校、楼龄、停车、通勤和税费估算。客户希望周末带爱人一起复看。"
+        }
+      ]
+    },
+    {
+      "name": "许晨曦",
+      "gender": "女",
+      "age": 28,
+      "tags": ["租转买", "低首付", "地铁沿线", "小户型"],
+      "phone": "13944268107",
+      "location": {"raw": "上海市徐汇区漕河泾", "city": "上海市", "district": "徐汇区", "subarea": "漕河泾"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户28岁，在漕河泾上班，目前租房。想从租房转为买小户型，总价预算约300万，首付能力有限，倾向地铁沿线一居或小两居。客户最担心贷款资质和月供压力，希望先明确可买范围。"
+        },
+        {
+          "type": "text",
+          "content": "客户接受房龄稍老，但希望小区安全、通勤方便，最好离地铁不超过1公里。客户对上海不同板块不熟，需要顾问帮她把可选区域缩小到3个方向。当前她对闵行、徐汇边缘和浦东部分板块都愿意了解。"
+        },
+        {
+          "type": "text",
+          "content": "最近沟通中客户表示如果合适可以年内定下来，但不想被催促。她希望先看总价低、税费低、流动性还可以的房源，暂时不考虑需要大装修的房子。"
+        }
+      ]
+    },
+    {
+      "name": "陈立峰",
+      "gender": "男",
+      "age": 46,
+      "tags": ["投资型", "现金充足", "租金回报", "谨慎决策"],
+      "phone": "13788204631",
+      "location": {"raw": "上海市浦东新区陆家嘴", "city": "上海市", "district": "浦东新区", "subarea": "陆家嘴"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户46岁，企业高管，已有自住房，这次主要看投资型房产。客户现金较充足，但明确表示不追高，不接受过度包装的投资逻辑。关注浦东、前滩、徐汇滨江等板块，希望了解租金稳定性和未来转手流动性。"
+        },
+        {
+          "type": "text",
+          "content": "沟通中客户重点询问税费、持有成本、出租难度和空置风险。客户对商住和公寓兴趣不大，更倾向住宅或核心板块小面积标的。客户要求所有收益判断必须保守，不希望听到夸张涨幅预测。"
+        },
+        {
+          "type": "text",
+          "content": "最近一次电话中客户要求下次提供3套不同策略的标的：一套偏核心稳健、一套偏租金回报、一套偏总价门槛低。客户希望每套都列出风险点，而不是只讲优点。"
+        }
+      ]
+    },
+    {
+      "name": "王欣然",
+      "gender": "女",
+      "age": 35,
+      "tags": ["改善换房", "卖一买一", "时间紧", "决策人不一致"],
+      "phone": "13690351728",
+      "location": {"raw": "北京市丰台区丽泽", "city": "北京市", "district": "丰台区", "subarea": "丽泽"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户35岁，夫妻二人准备卖掉当前小两居，换一套三居。意向区域在丰台丽泽、菜户营、玉泉营附近，预算取决于现房出售价格。客户本人想尽快换，丈夫担心卖一买一衔接不好。"
+        },
+        {
+          "type": "text",
+          "content": "客户现在最大的顾虑是时间节奏：如果先卖后买，担心短期租房不方便；如果先买后卖，资金压力较大。客户希望顾问帮她梳理换房路径，以及不同路径下的风险和时间节点。"
+        },
+        {
+          "type": "text",
+          "content": "最近沟通中客户说现房已有中介估价，但价格预期和市场成交价可能有差距。客户希望下一步先做现房真实成交价评估，再决定目标房源预算。"
+        }
+      ]
+    },
+    {
+      "name": "赵雅楠",
+      "gender": "女",
+      "age": 42,
+      "tags": ["学区优先", "单价敏感", "二手房", "孩子转学"],
+      "phone": "13566792084",
+      "location": {"raw": "北京市西城区广安门", "city": "北京市", "district": "西城区", "subarea": "广安门"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户42岁，孩子准备转学，核心诉求是西城学区。预算总价约900万以内，能接受面积小一些，但不能接受明显硬伤。客户对政策变化非常敏感，要求顾问对学区相关信息表达保守，不能做确定承诺。"
+        },
+        {
+          "type": "text",
+          "content": "客户已经看过两套广安门附近老破小，一套楼层高无电梯，一套户型较差。客户觉得价格压力大，但为了孩子可以接受一定居住牺牲。丈夫更关注未来是否容易转手。"
+        },
+        {
+          "type": "text",
+          "content": "客户希望下一次集中看三套不同取舍的房源：一套学校更优，一套居住更舒服，一套总价更低。她希望顾问提前把每套房的硬伤讲清楚。"
+        }
+      ]
+    },
+    {
+      "name": "刘景航",
+      "gender": "男",
+      "age": 31,
+      "tags": ["婚房", "双方父母参与", "预算摇摆", "新房偏好"],
+      "phone": "15821067439",
+      "location": {"raw": "上海市闵行区七宝", "city": "上海市", "district": "闵行区", "subarea": "七宝"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户31岁，准备结婚买婚房。双方父母都会参与决策，预算从500万到650万之间摇摆。客户本人偏好新房或次新房，未婚妻更关注生活配套和离地铁距离。意向区域包括七宝、莘庄、九亭。"
+        },
+        {
+          "type": "text",
+          "content": "客户父母担心期房交付风险，更倾向成熟二手房；女方父母希望小区环境好一些。客户夹在中间，希望顾问帮他把新房、次新和成熟二手房的利弊讲清楚。"
+        },
+        {
+          "type": "text",
+          "content": "最近沟通中客户说本周末双方父母都有时间，可以安排一次集中看房。客户希望路线不要太散，最好控制在两个板块内，每套房都能说明为什么值得看。"
+        }
+      ]
+    },
+    {
+      "name": "何宇辰",
+      "gender": "男",
+      "age": 37,
+      "tags": ["改善四居", "品质小区", "停车关注", "不急成交"],
+      "phone": "18801957263",
+      "location": {"raw": "上海市杨浦区五角场", "city": "上海市", "district": "杨浦区", "subarea": "五角场"},
+      "records": [
+        {
+          "type": "text",
+          "content": "客户37岁，家庭已有一套两居，想改善到四居或大三居。预算约1000万到1300万，关注杨浦五角场、新江湾城、虹口部分板块。客户不急成交，要求小区品质、停车、物业和户型都比较均衡。"
+        },
+        {
+          "type": "text",
+          "content": "客户看房很理性，会逐项记录优缺点。上次带看的房源中，他认为一套户型很好但停车困难，另一套小区品质不错但离地铁稍远。客户希望顾问不要频繁推不匹配房源。"
+        },
+        {
+          "type": "text",
+          "content": "回访时客户表示可以继续看，但希望每次最多安排2到3套，并提前说明推荐理由。客户更愿意为真正稀缺和均衡的房源付溢价，不接受明显短板。"
+        }
+      ]
+    }
+  ]
+}
+
+
+DATASETS = {
+    "insurance": TEST_DATA,
+    "real_estate": REAL_ESTATE_TEST_DATA,
+    "mixed": {
+        "customers": TEST_DATA["customers"][:5] + REAL_ESTATE_TEST_DATA["customers"][:5],
+    },
+}
+
+
 async def clear_data(session):
     """清空现有数据"""
     print("🗑️  清空现有客户和记录...")
@@ -257,22 +450,40 @@ async def clear_data(session):
     print("✅ 数据已清空")
 
 
-async def import_data(session):
+async def update_user_industry(session, user_id: str, industry: str):
+    """如果目标用户存在，同步设置行业，便于导入后直接体验对应 Prompt。"""
+    user = await session.get(User, user_id)
+    if not user:
+        print(f"ℹ️  未找到用户 {user_id}，跳过用户行业设置")
+        return
+    user.industry_key = industry if industry in {"generic", "insurance", "real_estate"} else "generic"
+    user.industry_selected = True
+    print(f"🏷️  用户行业已设置为: {user.industry_key}")
+
+
+async def import_data(session, dataset: dict, user_id: str, industry: str):
     """导入测试数据"""
-    user_id = "default-user"
     now = datetime.now()
-    
-    for customer_data in TEST_DATA["customers"]:
-        # 创建客户（把年龄放到标签里）
+
+    await update_user_industry(session, user_id, industry)
+
+    for customer_data in dataset["customers"]:
+        # 年龄写入正式字段，同时保留年龄标签，方便旧查询逻辑和前端展示兼容。
         tags = customer_data.get("tags", [])
         if customer_data.get("age"):
             tags = [f"{customer_data['age']}岁"] + tags
+        location = customer_data.get("location") or {}
         
         customer = Customer(
             id=str(uuid4()),
             name=customer_data["name"],
             phone=customer_data.get("phone"),
             gender=customer_data.get("gender"),
+            age=customer_data.get("age"),
+            location_raw=location.get("raw"),
+            location_city=location.get("city"),
+            location_district=location.get("district"),
+            location_subarea=location.get("subarea"),
             tags=tags,
             user_id=user_id,
             summary_text=None,
@@ -295,6 +506,10 @@ async def import_data(session):
                 customer_id=customer.id,
                 content=record_data["content"],
                 type=record_data.get("type", "text"),
+                location_raw=location.get("raw"),
+                location_city=location.get("city"),
+                location_district=location.get("district"),
+                location_subarea=location.get("subarea"),
                 created_at=base_date + timedelta(days=i * 7),
                 updated_at=base_date + timedelta(days=i * 7),
             )
@@ -306,17 +521,54 @@ async def import_data(session):
     print("\n✅ 所有数据导入完成")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="导入测试客户数据")
+    parser.add_argument(
+        "--industry",
+        choices=sorted(DATASETS.keys()),
+        default="insurance",
+        help="导入哪一组样例客户",
+    )
+    parser.add_argument(
+        "--user-id",
+        default="default-user",
+        help="客户归属用户 ID，默认 default-user",
+    )
+    parser.add_argument(
+        "--yes",
+        action="store_true",
+        help="确认清空现有客户和记录并执行导入",
+    )
+    return parser.parse_args()
+
+
 async def main():
+    args = parse_args()
+    dataset = DATASETS[args.industry]
+
     print("═══════════════════════════════")
     print("  导入测试客户数据")
     print("═══════════════════════════════\n")
+    print(f"行业数据集: {args.industry}")
+    print(f"用户 ID: {args.user_id}\n")
+
+    if not args.yes:
+        print("⚠️  该脚本会清空现有客户和记录。")
+        print("如确认执行，请追加 --yes，例如：")
+        print(f"  ./.venv/bin/python import_customers.py --industry {args.industry} --user-id {args.user_id} --yes")
+        return
     
     async with async_session_factory() as session:
         # 1. 清空数据
         await clear_data(session)
         
         # 2. 导入新数据
-        await import_data(session)
+        await import_data(
+            session,
+            dataset=dataset,
+            user_id=args.user_id,
+            industry=args.industry,
+        )
         
         # 3. 验证
         result = await session.execute(select(Customer))

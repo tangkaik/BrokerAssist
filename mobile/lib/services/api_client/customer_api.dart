@@ -22,16 +22,24 @@ class CustomerApi {
 
   Future<ApiResponse<Map<String, dynamic>>> createCustomer({
     required String name,
+    String? phone,
     String? gender,
     int? age,
+    String? location,
     List<String>? tags,
   }) async {
     final body = <String, dynamic>{'name': name};
+    if (phone != null && phone.isNotEmpty) {
+      body['phone'] = phone;
+    }
     if (gender != null) {
       body['gender'] = gender;
     }
     if (age != null) {
       body['age'] = age;
+    }
+    if (location != null && location.isNotEmpty) {
+      body['location'] = location;
     }
     if (tags != null && tags.isNotEmpty) {
       body['tags'] = tags;
@@ -59,6 +67,8 @@ class CustomerApi {
     int pageSize = 20,
     String sortBy = 'updated_at',
     String sortOrder = 'desc',
+    String? summaryStatus,
+    bool staleContact = false,
   }) async {
     final queryParams = {
       'page': page.toString(),
@@ -68,6 +78,12 @@ class CustomerApi {
     };
     if (keyword != null && keyword.isNotEmpty) {
       queryParams['keyword'] = keyword;
+    }
+    if (summaryStatus != null && summaryStatus.isNotEmpty) {
+      queryParams['summary_status'] = summaryStatus;
+    }
+    if (staleContact) {
+      queryParams['stale_contact'] = 'true';
     }
 
     return _client.get(
@@ -98,6 +114,22 @@ class CustomerApi {
     );
   }
 
+  Future<ApiResponse<Map<String, dynamic>>> getSavedAdvice(
+    String customerId,
+  ) async {
+    return _client.get(
+      '/customers/$customerId/advice',
+      fromJsonT: (data) => data as Map<String, dynamic>,
+    );
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> getSummaryStats() async {
+    return _client.get(
+      '/customers/summary-stats',
+      fromJsonT: (data) => data as Map<String, dynamic>,
+    );
+  }
+
   Future<ApiResponse<Map<String, dynamic>>> deleteCustomer(
     String customerId,
   ) async {
@@ -112,6 +144,7 @@ class CustomerApi {
     String? name,
     String? phone,
     String? gender,
+    int? age,
     String? location,
     List<String>? tags,
   }) async {
@@ -124,6 +157,9 @@ class CustomerApi {
     }
     if (gender != null) {
       body['gender'] = gender;
+    }
+    if (age != null) {
+      body['age'] = age;
     }
     if (location != null) {
       body['location'] = location;

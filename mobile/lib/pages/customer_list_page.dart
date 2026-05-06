@@ -3,17 +3,22 @@ import 'package:flutter/material.dart';
 import 'package:pinyin/pinyin.dart';
 import '../models/models.dart';
 import '../services/api.dart';
+import '../utils/customer_search.dart';
 import '../widgets/customer_avatar.dart';
+import 'home_widgets.dart';
+import 'customer_detail_page.dart';
 
 /// 客户列表页
-/// 
+///
 /// 功能：
 /// - 显示客户列表
 /// - 支持模糊搜索（按姓名、标签）
 /// - 支持多种排序方式
 /// - 点击跳转详情
 class CustomerListPage extends StatefulWidget {
-  const CustomerListPage({super.key});
+  final String? initialFilter;
+
+  const CustomerListPage({super.key, this.initialFilter});
 
   @override
   State<CustomerListPage> createState() => _CustomerListPageState();
@@ -107,6 +112,17 @@ class _CustomerListPageState extends State<CustomerListPage> {
     _loadCustomers();
   }
 
+  String get _filterLabel {
+    switch (widget.initialFilter) {
+      case 'stale-summary':
+        return '画像待更新';
+      case 'stale-contact':
+        return '超期未联系';
+      default:
+        return '';
+    }
+  }
+
   @override
   void dispose() {
     _searchController.dispose();
@@ -116,7 +132,9 @@ class _CustomerListPageState extends State<CustomerListPage> {
   }
 
   void _onScroll() {
-    if (_scrollController.position.pixels >= _scrollController.position.maxScrollExtent - 200) {
+    if (isPinyinLikeKeyword(_keyword)) return;
+    if (_scrollController.position.pixels >=
+        _scrollController.position.maxScrollExtent - 200) {
       if (!_isLoading && !_isLoadingMore && _hasMore) {
         _loadMoreCustomers();
       }
@@ -133,19 +151,29 @@ class _CustomerListPageState extends State<CustomerListPage> {
     });
 
     try {
+      final useLocalPinyinSearch = isPinyinLikeKeyword(_keyword);
       final response = await apiService.searchCustomers(
-        keyword: _keyword.isEmpty ? null : _keyword,
+        keyword: _keyword.isEmpty || useLocalPinyinSearch ? null : _keyword,
         page: 1,
-        pageSize: _pageSize,
+        pageSize: useLocalPinyinSearch ? 200 : _pageSize,
         sortBy: _sortBy,
         sortOrder: _sortOrder,
+        summaryStatus: widget.initialFilter == 'stale-summary' ? 'stale,failed' : null,
+        staleContact: widget.initialFilter == 'stale-contact',
       );
 
       setState(() {
         _isLoading = false;
         if (response.success && response.data != null) {
-          _customers = response.data!.items;
-          _hasMore = response.data!.items.length >= _pageSize;
+          _customers = useLocalPinyinSearch
+              ? response.data!.items
+                    .where(
+                      (customer) => customerMatchesKeyword(customer, _keyword),
+                    )
+                    .toList()
+              : response.data!.items;
+          _hasMore =
+              !useLocalPinyinSearch && response.data!.items.length >= _pageSize;
           // 前端按拼音排序（后端返回的是Unicode排序）
           _sortCustomers();
         } else {
@@ -162,6 +190,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
 
   Future<void> _loadMoreCustomers() async {
     if (_isLoadingMore || !_hasMore) return;
+    if (isPinyinLikeKeyword(_keyword)) return;
 
     setState(() {
       _isLoadingMore = true;
@@ -175,6 +204,8 @@ class _CustomerListPageState extends State<CustomerListPage> {
         pageSize: _pageSize,
         sortBy: _sortBy,
         sortOrder: _sortOrder,
+        summaryStatus: widget.initialFilter == 'stale-summary' ? 'stale,failed' : null,
+        staleContact: widget.initialFilter == 'stale-contact',
       );
 
       setState(() {
@@ -228,6 +259,21 @@ class _CustomerListPageState extends State<CustomerListPage> {
     _loadCustomers();
   }
 
+  Future<void> _showQuickCreate() async {
+    final customerId = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (_) => const QuickCreateCustomerSheet(),
+    );
+    if (customerId != null && mounted) {
+      _loadCustomers();
+    }
+  }
+
   /// 切换排序
   void _changeSort(_SortOption option) {
     setState(() {
@@ -271,12 +317,12 @@ class _CustomerListPageState extends State<CustomerListPage> {
               ),
               const Divider(height: 1),
               ..._sortOptions.map((option) {
-                final isSelected = _sortBy == option.sortBy && 
-                                  _sortOrder == option.sortOrder;
+                final isSelected =
+                    _sortBy == option.sortBy && _sortOrder == option.sortOrder;
                 return ListTile(
                   leading: Icon(option.icon),
                   title: Text(option.label),
-                  trailing: isSelected 
+                  trailing: isSelected
                       ? const Icon(Icons.check, color: Color(0xFF2196F3))
                       : null,
                   selected: isSelected,
@@ -304,10 +350,15 @@ class _CustomerListPageState extends State<CustomerListPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('客户列表'),
+        title: Text(_filterLabel.isNotEmpty ? '客户列表 · $_filterLabel' : '客户列表'),
         backgroundColor: const Color(0xFF2196F3),
         foregroundColor: Colors.white,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.person_add, color: Colors.white),
+            onPressed: _showQuickCreate,
+            tooltip: '新建客户',
+          ),
           // 排序按钮
           TextButton.icon(
             onPressed: _showSortBottomSheet,
@@ -323,29 +374,24 @@ class _CustomerListPageState extends State<CustomerListPage> {
         children: [
           // 搜索框
           _buildSearchBar(),
-          
+
           const Divider(height: 1),
-          
+
           // 结果数量提示
           if (!_isLoading && _customers.isNotEmpty)
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               alignment: Alignment.centerLeft,
               child: Text(
-                _keyword.isEmpty 
+                _keyword.isEmpty
                     ? '共 ${_customers.length} 位客户'
                     : '找到 ${_customers.length} 位客户',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 13, color: Colors.grey[600]),
               ),
             ),
-          
+
           // 列表区
-          Expanded(
-            child: _buildBody(),
-          ),
+          Expanded(child: _buildBody()),
         ],
       ),
     );
@@ -360,7 +406,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
         controller: _searchController,
         onChanged: _onSearchChanged,
         decoration: InputDecoration(
-          hintText: '搜索客户姓名或标签...',
+          hintText: '搜索姓名、拼音、首字母或标签...',
           hintStyle: TextStyle(color: Colors.grey[400]),
           prefixIcon: Icon(Icons.search, color: Colors.grey[400]),
           suffixIcon: _keyword.isNotEmpty
@@ -408,7 +454,11 @@ class _CustomerListPageState extends State<CustomerListPage> {
               const SizedBox(height: 16),
               Text(
                 '加载失败',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500, color: Colors.grey[700]),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: Colors.grey[700],
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -424,7 +474,10 @@ class _CustomerListPageState extends State<CustomerListPage> {
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue.shade600,
                   foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
                 ),
               ),
             ],
@@ -448,7 +501,9 @@ class _CustomerListPageState extends State<CustomerListPage> {
               ),
               const SizedBox(height: 16),
               Text(
-                _keyword.isEmpty ? '暂无客户' : '未找到 "$_keyword"',
+                _filterLabel.isNotEmpty
+                    ? '无满足"$_filterLabel"条件的客户'
+                    : (_keyword.isEmpty ? '暂无客户' : '未找到 "$_keyword"'),
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w500,
@@ -463,10 +518,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
                 ),
               ] else ...[
                 const SizedBox(height: 8),
-                TextButton(
-                  onPressed: _clearSearch,
-                  child: const Text('清除搜索'),
-                ),
+                TextButton(onPressed: _clearSearch, child: const Text('清除搜索')),
               ],
             ],
           ),
@@ -521,17 +573,17 @@ class _CustomerListItem extends StatelessWidget {
                 spacing: 4,
                 children: customer.tags.take(3).map((tag) {
                   return Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: Colors.grey[200],
                       borderRadius: BorderRadius.circular(4),
                     ),
                     child: Text(
                       tag,
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: Colors.grey[700],
-                      ),
+                      style: TextStyle(fontSize: 11, color: Colors.grey[700]),
                     ),
                   );
                 }).toList(),
@@ -544,10 +596,7 @@ class _CustomerListItem extends StatelessWidget {
                 customer.summary!,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 12,
-                  color: Colors.grey[600],
-                ),
+                style: TextStyle(fontSize: 12, color: Colors.grey[600]),
               ),
             ),
         ],
@@ -559,11 +608,7 @@ class _CustomerListItem extends StatelessWidget {
             )
           : null,
       onTap: () {
-        Navigator.pushNamed(
-          context,
-          '/customer-detail',
-          arguments: customer.id,
-        );
+        Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customer.id)));
       },
     );
   }
@@ -571,7 +616,7 @@ class _CustomerListItem extends StatelessWidget {
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final diff = now.difference(date);
-    
+
     if (diff.inDays == 0) {
       return '今天';
     } else if (diff.inDays == 1) {

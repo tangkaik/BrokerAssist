@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 import '../services/api.dart';
 import '../services/auth_session.dart';
 import '../services/chat_storage.dart';
+import 'customer_detail_page.dart';
 
 /// AI 全局业务问答页 (P5 阶段)
 ///
@@ -52,11 +53,11 @@ class _AIChatPageState extends State<AIChatPage> {
 
   /// 建议问题列表（5个）
   final List<String> _suggestedQuestions = [
-    '请列出当前所有客户',
+    '有多少住在海淀区的女客户',
+    '列出55岁以上的女性客户',
+    '徐汇区的客户有哪些',
     '哪些客户两个月没联系了',
-    '这周拜访了哪些人',
-    '给我生成周报',
-    '推荐优先级最高的3个客户',
+    '列出高净值客户',
   ];
 
   /// 搜索历史
@@ -71,6 +72,7 @@ class _AIChatPageState extends State<AIChatPage> {
   String? _pendingAnswer; // 待显示的完整答案
   int _answerPartIndex = 0; // 当前显示到第几部分
   static const int _maxLinesPerMessage = 100; // 每条消息最大行数（超过则截断）
+  static const int _maxContextMessages = 16; // 最近 8 轮，供后端多轮能力使用
 
   @override
   void initState() {
@@ -140,6 +142,7 @@ class _AIChatPageState extends State<AIChatPage> {
     final effectiveQuestion = normalizedQuestion.isNotEmpty
         ? normalizedQuestion
         : '请识别这张图片并提取重点信息';
+    final recentMessages = _buildRecentMessagesForRequest();
     final userMessage = attachedImage == null
         ? effectiveQuestion
         : effectiveQuestion == normalizedQuestion
@@ -159,7 +162,10 @@ class _AIChatPageState extends State<AIChatPage> {
 
     try {
       final response = attachedImage == null
-          ? await apiService.aiChat(question: effectiveQuestion)
+          ? await apiService.aiChat(
+              question: effectiveQuestion,
+              recentMessages: recentMessages,
+            )
           : await apiService.aiChatWithImage(
               question: effectiveQuestion,
               imagePath: attachedImage.path,
@@ -186,7 +192,10 @@ class _AIChatPageState extends State<AIChatPage> {
         setState(() {
           _messages.add(
             _ChatMessage(
-              content: '请求失败: ${response.error?.message ?? '未知错误'}',
+              content: _friendlyAiErrorMessage(
+                response.error?.message,
+                hasImage: attachedImage != null,
+              ),
               isUser: false,
             ),
           );
@@ -194,13 +203,54 @@ class _AIChatPageState extends State<AIChatPage> {
       }
     } catch (e) {
       setState(() {
-        _messages.add(_ChatMessage(content: '网络错误: $e', isUser: false));
+        _messages.add(
+          _ChatMessage(
+            content: _friendlyAiErrorMessage(
+              e.toString(),
+              hasImage: attachedImage != null,
+            ),
+            isUser: false,
+          ),
+        );
       });
     } finally {
       setState(() => _isSending = false);
       _scrollToBottom();
       _saveChatHistory();
     }
+  }
+
+  List<Map<String, String>> _buildRecentMessagesForRequest() {
+    return _messages
+        .where((message) => message.content.trim().isNotEmpty)
+        .toList()
+        .reversed
+        .take(_maxContextMessages)
+        .toList()
+        .reversed
+        .map(
+          (message) => {
+            'role': message.isUser ? 'user' : 'assistant',
+            'content': message.content.trim(),
+          },
+        )
+        .toList();
+  }
+
+  String _friendlyAiErrorMessage(String? rawMessage, {required bool hasImage}) {
+    final message = rawMessage?.trim();
+    if (hasImage) {
+      return '图片识别暂时不可用。可以先把图片里的文字或关键信息发给我，我会继续基于文本帮你分析。';
+    }
+    if (message == null || message.isEmpty || message == '未知错误') {
+      return 'AI 助手暂时没有返回结果，请稍后再试。';
+    }
+    if (message.contains('服务暂时不可用') ||
+        message.contains('请求失败') ||
+        message.contains('网络连接失败')) {
+      return 'AI 助手暂时连接不上服务，请稍后再试。';
+    }
+    return '请求失败：$message';
   }
 
   Future<void> _pickImage() async {
@@ -576,23 +626,40 @@ class _AIChatPageState extends State<AIChatPage> {
 
   /// 空状态展示
   Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.smart_toy, size: 80, color: Colors.grey[300]),
-          const SizedBox(height: 20),
-          Text(
-            '有什么可以帮您的？',
-            style: TextStyle(fontSize: 18, color: Colors.grey[600]),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 180;
+        return SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.smart_toy,
+                    size: compact ? 44 : 80,
+                    color: Colors.grey[300],
+                  ),
+                  SizedBox(height: compact ? 8 : 20),
+                  Text(
+                    '有什么可以帮您的？',
+                    style: TextStyle(
+                      fontSize: compact ? 15 : 18,
+                      color: Colors.grey[600],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    '基于您的客户数据提供业务洞察',
+                    style: TextStyle(fontSize: 13, color: Colors.grey[400]),
+                  ),
+                ],
+              ),
+            ),
           ),
-          const SizedBox(height: 8),
-          Text(
-            '基于您的客户数据提供业务洞察',
-            style: TextStyle(fontSize: 13, color: Colors.grey[400]),
-          ),
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -718,14 +785,57 @@ class _AIChatPageState extends State<AIChatPage> {
     );
   }
 
+  String _cleanAssistantAnswer(String text) {
+    final hasCustomerLink = RegExp(
+      r'(?:\[?[^\]\n|]{1,24}\|[0-9a-fA-F-]{36}\]?)',
+    ).hasMatch(text);
+    if (!hasCustomerLink) return text;
+
+    final lines = text.split('\n');
+    while (lines.isNotEmpty && lines.last.trim().isEmpty) {
+      lines.removeLast();
+    }
+    if (lines.isEmpty) return text;
+
+    final lastParagraphStart = lines.lastIndexWhere((line) {
+      final trimmed = line.trim();
+      return trimmed.isEmpty;
+    });
+    final paragraphStart = lastParagraphStart == -1
+        ? 0
+        : lastParagraphStart + 1;
+    final lastParagraph = lines.sublist(paragraphStart).join('\n').trim();
+
+    if (lastParagraph.startsWith('当前记录中') &&
+        (lastParagraph.contains('没有') || lastParagraph.contains('不足'))) {
+      return lines.sublist(0, paragraphStart).join('\n').trimRight();
+    }
+
+    return text;
+  }
+
   /// 构建可点击文本（解析 [客户名|ID] 格式）
   Widget _buildClickableText(String text) {
+    text = _cleanAssistantAnswer(text);
     final pipeRegex = RegExp(r'\[([^\]]+)\|([0-9a-fA-F-]{36})\]');
+    final barePipeRegex = RegExp(
+      r'(?<!\[)([\u4e00-\u9fa5A-Za-z][\u4e00-\u9fa5A-Za-z·]{1,20})\|([0-9a-fA-F-]{36})',
+    );
     final markdownRegex = RegExp(
       r'\[([^\]]+)\]\((?:/customer-detail/|brokerassist://customer/)([0-9a-fA-F-]{36})\)',
     );
     final matches = <_InlineCustomerLinkMatch>[
       ...pipeRegex
+          .allMatches(text)
+          .map(
+            (match) => _InlineCustomerLinkMatch(
+              start: match.start,
+              end: match.end,
+              name: match.group(1) ?? '',
+              id: match.group(2) ?? '',
+            ),
+          ),
+      ...barePipeRegex
           .allMatches(text)
           .map(
             (match) => _InlineCustomerLinkMatch(
@@ -747,7 +857,15 @@ class _AIChatPageState extends State<AIChatPage> {
           ),
     ]..sort((a, b) => a.start.compareTo(b.start));
 
-    if (matches.isEmpty) {
+    final filteredMatches = <_InlineCustomerLinkMatch>[];
+    var previousEnd = -1;
+    for (final match in matches) {
+      if (match.start < previousEnd) continue;
+      filteredMatches.add(match);
+      previousEnd = match.end;
+    }
+
+    if (filteredMatches.isEmpty) {
       // 没有链接，普通文本
       return Text(
         text,
@@ -759,7 +877,7 @@ class _AIChatPageState extends State<AIChatPage> {
     final List<TextSpan> spans = [];
     int currentPos = 0;
 
-    for (final match in matches) {
+    for (final match in filteredMatches) {
       // 添加链接前的普通文本
       if (match.start > currentPos) {
         spans.add(
@@ -808,7 +926,7 @@ class _AIChatPageState extends State<AIChatPage> {
 
   /// 打开客户详情页
   void _openCustomerDetail(String customerId) {
-    Navigator.pushNamed(context, '/customer-detail', arguments: customerId);
+    Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customerId)));
   }
 }
 

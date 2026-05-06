@@ -8,8 +8,14 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ApiConfig {
   static const String _keyBaseUrl = 'api_base_url';
 
-  /// 默认地址（当前测试服务器）
-  static const String defaultUrl = 'http://39.106.169.40/api/v1';
+  /// 默认地址
+  ///
+  /// Android 模拟器访问宿主机 localhost 需要使用 10.0.2.2。
+  /// 如需切换线上测试服务器，可在设置页里手动修改 API 地址。
+  static const String defaultUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://10.0.2.2:8001/api/v1',
+  );
 
   /// 当前使用的地址
   static String _currentUrl = defaultUrl;

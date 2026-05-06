@@ -25,6 +25,8 @@ const state = {
   recordImageModes: {},
 };
 
+const GLOBAL_CHAT_CONTEXT_LIMIT = 16;
+
 const els = {
   apiBaseUrl: document.querySelector("#api-base-url"),
   apiConfigForm: document.querySelector("#api-config-form"),
@@ -1434,6 +1436,15 @@ async function askGlobalQuestion(question, imageFile = null) {
   }
   if (!question.trim()) return;
 
+  const recentMessages = state.globalMessages
+    .slice(-GLOBAL_CHAT_CONTEXT_LIMIT)
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .map((message) => ({
+      role: message.role,
+      content: String(message.content || "").slice(0, 2000),
+    }))
+    .filter((message) => message.content.trim());
+
   hideGlobalSuggestions();
   state.globalMessages.push({
     role: "user",
@@ -1452,7 +1463,7 @@ async function askGlobalQuestion(question, imageFile = null) {
         })()
       : await apiFetch("/ai/chat", {
           method: "POST",
-          body: { question: question.trim() },
+          body: { question: question.trim(), recent_messages: recentMessages },
         });
 
     state.globalMessages.push({
@@ -1462,9 +1473,12 @@ async function askGlobalQuestion(question, imageFile = null) {
     });
     renderGlobalChat();
   } catch (error) {
+    const fallbackMessage = imageFile
+      ? "图片识别暂时不可用。可以先把图片里的文字或关键信息发给我，我会继续基于文本帮你分析。"
+      : error.message;
     state.globalMessages.push({
       role: "assistant",
-      content: error.message,
+      content: fallbackMessage,
       time: new Date().toISOString(),
     });
     renderGlobalChat();

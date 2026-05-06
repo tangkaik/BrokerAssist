@@ -23,10 +23,22 @@ def get_ai_service() -> AIService:
     return AIService()
 
 
+class AIChatMessage(BaseModel):
+    """前端传入的最近对话消息，用于轻量多轮追问。"""
+
+    role: str = Field(..., description="user 或 assistant")
+    content: str = Field(..., min_length=1, max_length=2000, description="消息内容")
+
+
 class AIChatRequest(BaseModel):
     """AI 问答请求"""
 
     question: str = Field(..., min_length=1, max_length=500, description="用户问题")
+    recent_messages: list[AIChatMessage] = Field(
+        default_factory=list,
+        max_length=16,
+        description="最近 8 轮对话上下文，由前端裁剪后传入",
+    )
 
 
 class AIChatResponse(BaseModel):
@@ -52,7 +64,15 @@ async def ai_chat(
     基于当前用户的客户列表和摘要信息回答问题。
     适用于：列出所有客户、找出多久未联系的客户等全局查询。
     """
-    answer = await ai_service.ask_global_question(user_id, request.question)
+    recent_messages = [
+        {"role": message.role, "content": message.content}
+        for message in request.recent_messages
+    ]
+    answer = await ai_service.ask_global_question(
+        user_id,
+        request.question,
+        recent_messages=recent_messages,
+    )
     return success_response(data={"answer": answer})
 
 

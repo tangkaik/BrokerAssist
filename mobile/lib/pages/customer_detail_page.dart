@@ -8,8 +8,11 @@ import 'package:share_plus/share_plus.dart';
 import '../models/models.dart';
 import '../services/api.dart';
 import '../services/api_config.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
+
 import '../widgets/customer_avatar.dart';
 import '../widgets/skeleton.dart';
+import 'draft_record_page.dart';
 import 'edit_customer_page.dart';
 
 class CustomerDetailPage extends StatefulWidget {
@@ -21,20 +24,20 @@ class CustomerDetailPage extends StatefulWidget {
 
 class _CustomerDetailPageState extends State<CustomerDetailPage> {
   final ImagePicker _imagePicker = ImagePicker();
-  final TextEditingController _customerAiController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
-  final GlobalKey _customerAiSectionKey = GlobalKey();
-  final FocusNode _customerAiFocusNode = FocusNode();
 
   String? _customerId;
   String? _loadedCustomerId;
   Customer? _customer;
   List<Record> _records = [];
+  String _adviceText = '';
+  String? _adviceUpdatedAt;
 
   bool _isLoading = true;
   bool _isRefreshingSummary = false;
-  bool _isAskingCustomerAi = false;
-  String? _customerAiAnswer;
+  bool _isRefreshingAdvice = false;
+  bool _summaryExpanded = false;
+  bool _adviceExpanded = false;
   final Set<String> _analyzingImageUrls = <String>{};
 
   @override
@@ -50,8 +53,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
 
   @override
   void dispose() {
-    _customerAiController.dispose();
-    _customerAiFocusNode.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -72,6 +73,14 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       }
       if (recordsResponse.success && recordsResponse.data != null) {
         _records = recordsResponse.data!.items;
+      }
+      final adviceResponse = await apiService.getSavedAdvice(_customerId!);
+      if (adviceResponse.success && adviceResponse.data != null) {
+        _adviceText = _extractAdviceText(adviceResponse.data!);
+        _adviceUpdatedAt = adviceResponse.data!['updated_at'] as String?;
+      } else {
+        _adviceText = '';
+        _adviceUpdatedAt = null;
       }
       setState(() {});
     } catch (e) {
@@ -130,56 +139,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     }
   }
 
-  Future<void> _askCustomerAi() async {
-    if (_customerId == null) return;
-    final question = _customerAiController.text.trim();
-    if (question.isEmpty) {
-      _showMessage('请先输入你想问这个客户的问题');
-      return;
-    }
-
-    setState(() => _isAskingCustomerAi = true);
-    try {
-      final response = await apiService.chatWithCustomer(
-        customerId: _customerId!,
-        question: question,
-      );
-      if (!mounted) return;
-      if (response.success && response.data != null) {
-        setState(() {
-          _customerAiAnswer =
-              (response.data!['answer'] ?? response.data!['reply'] ?? '')
-                  as String;
-        });
-      } else {
-        _showMessage(response.error?.message ?? '客户 AI 问答失败');
-      }
-    } catch (e) {
-      if (mounted) {
-        _showMessage('客户 AI 问答失败: $e');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isAskingCustomerAi = false);
-      }
-    }
-  }
-
-  Future<void> _scrollToCustomerAiSection({bool requestFocus = false}) async {
-    final context = _customerAiSectionKey.currentContext;
-    if (context != null) {
-      await Scrollable.ensureVisible(
-        context,
-        duration: const Duration(milliseconds: 260),
-        curve: Curves.easeOutCubic,
-        alignment: 0.08,
-      );
-    }
-    if (requestFocus && mounted) {
-      _customerAiFocusNode.requestFocus();
-    }
-  }
-
   Future<void> _analyzeRecordImage({
     required String recordId,
     required String imageUrl,
@@ -197,11 +156,11 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         _showMessage('图片识别完成');
         await _loadCustomerData();
       } else {
-        _showMessage(response.error?.message ?? '图片识别失败');
+        _showMessage(_friendlyImageAnalysisError(response.error?.message));
       }
     } catch (e) {
       if (mounted) {
-        _showMessage('图片识别失败: $e');
+        _showMessage(_friendlyImageAnalysisError(e.toString()));
       }
     } finally {
       if (mounted) {
@@ -210,80 +169,47 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     }
   }
 
-  Future<void> _generateAndShowAdvice() async {
-    if (_customerId == null) return;
+  String _friendlyImageAnalysisError(String? rawMessage) {
+    final message = rawMessage?.trim();
+    if (message == null ||
+        message.isEmpty ||
+        message.contains('服务暂时不可用') ||
+        message.contains('请求失败') ||
+        message.contains('网络连接失败')) {
+      return '图片识别暂时不可用。可以先把图片里的文字或关键信息记录下来，我会继续基于文本帮你分析。';
+    }
+    return '图片识别失败：$message';
+  }
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Expanded(child: Text('正在生成拜访建议...')),
-          ],
-        ),
-      ),
-    );
+  String _extractAdviceText(Map<String, dynamic> data) {
+    return (data['advice'] ?? data['advice_text'] ?? '').toString().trim();
+  }
+
+  Future<void> _refreshAdvice() async {
+    if (_customerId == null) return;
+    setState(() => _isRefreshingAdvice = true);
 
     try {
       final response = await apiService.generateAdvice(_customerId!);
       if (!mounted) return;
-      Navigator.of(context).pop();
 
       if (response.success && response.data != null) {
-        final advice =
-            (response.data!['advice'] ??
-                    response.data!['advice_text'] ??
-                    '暂无建议')
-                as String;
-        _showAdviceDialog(advice);
+        setState(() {
+          _adviceText = _extractAdviceText(response.data!);
+          _adviceUpdatedAt = response.data!['updated_at'] as String?;
+        });
+        _showMessage('下一步建议已更新');
       } else {
-        _showMessage('生成失败: ${response.error?.message ?? '未知错误'}');
+        _showMessage('更新失败: ${response.error?.message ?? '未知错误'}');
       }
     } catch (e) {
       if (!mounted) return;
-      Navigator.of(context).pop();
-      _showMessage('生成失败: $e');
+      _showMessage('更新失败: $e');
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshingAdvice = false);
+      }
     }
-  }
-
-  void _showAdviceDialog(String advice) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Row(
-          children: [
-            Icon(Icons.lightbulb, color: Colors.amber[700]),
-            const SizedBox(width: 8),
-            const Text('拜访建议'),
-          ],
-        ),
-        content: SingleChildScrollView(
-          child: Text(
-            advice,
-            style: const TextStyle(fontSize: 15, height: 1.6),
-          ),
-        ),
-        actions: [
-          TextButton.icon(
-            onPressed: () => _copyText('拜访建议', advice),
-            icon: const Icon(Icons.copy_outlined),
-            label: const Text('复制'),
-          ),
-          TextButton.icon(
-            onPressed: () => _shareText('拜访建议', advice),
-            icon: const Icon(Icons.ios_share_outlined),
-            label: const Text('分享'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _copyText(String label, String text) async {
@@ -538,6 +464,33 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     );
   }
 
+  void _showAddRecordSheet() {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => DraftRecordPage(
+          customerId: _customerId,
+          customerName: _customer?.name,
+        ),
+      ),
+    ).then((_) {
+      _loadCustomerData();
+      // 新增记录后自动刷新画像和建议
+      _autoRefreshSummaryAndAdvice();
+    });
+  }
+
+  Future<void> _autoRefreshSummaryAndAdvice() async {
+    if (_customerId == null) return;
+    try {
+      await apiService.generateSummary(_customerId!);
+      await apiService.generateAdvice(_customerId!);
+      _loadCustomerData();
+    } catch (_) {
+      // 静默失败，不影响用户体验
+    }
+  }
+
   Future<void> _deleteRecord(String recordId) async {
     final response = await apiService.deleteRecord(recordId);
     if (!mounted) return;
@@ -661,6 +614,11 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         title: Text(_customer?.name ?? '客户详情'),
         actions: [
           IconButton(
+            icon: const Icon(Icons.add_comment_outlined),
+            onPressed: _isLoading ? null : () => _showAddRecordSheet(),
+            tooltip: '新增沟通记录',
+          ),
+          IconButton(
             icon: const Icon(Icons.edit),
             onPressed: _isLoading ? null : _navigateToEdit,
             tooltip: '编辑',
@@ -673,7 +631,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         ],
       ),
       body: _isLoading ? const CustomerDetailSkeleton() : _buildBody(),
-      bottomNavigationBar: _buildBottomBar(),
     );
   }
 
@@ -692,18 +649,25 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
           const SizedBox(height: 16),
           _buildSummarySection(),
           const SizedBox(height: 16),
-          _buildCustomerAiSection(),
+          _buildNextStepSuggestionSection(),
           const SizedBox(height: 16),
           Row(
             children: [
               const Icon(Icons.history, color: Color(0xFF2196F3)),
               const SizedBox(width: 8),
-              Text(
-                '沟通记录 (${_records.length})',
-                style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
+              Expanded(
+                child: Text(
+                  '沟通记录 (${_records.length})',
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2196F3)),
+                onPressed: () => _showAddRecordSheet(),
+                tooltip: '新增沟通记录',
               ),
             ],
           ),
@@ -745,14 +709,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
                           fontWeight: FontWeight.bold,
                         ),
                       ),
-                      if (_customer!.phone != null)
-                        Text(
-                          _customer!.phone!,
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: Colors.grey[600],
-                          ),
-                        ),
                     ],
                   ),
                 ),
@@ -766,16 +722,35 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
               runSpacing: 8,
               children: [
                 if (_customer!.gender != null)
-                  _buildTag(_customer!.gender!, Icons.person),
+                  _buildTag(_displayGender(_customer!.gender!), Icons.person),
+                if (_customer!.age != null)
+                  _buildTag('${_customer!.age}岁', Icons.cake),
                 if (_customer?.createdAt != null)
                   _buildTag(
                     '${_customer!.createdAt.month}/${_customer!.createdAt.day} 创建',
                     Icons.calendar_today,
                   ),
-                if (_customer?.locationCity != null)
-                  _buildTag(_customer!.locationCity!, Icons.location_on),
+                if (_locationDisplay.isNotEmpty)
+                  _buildTag(_locationDisplay, Icons.location_on),
               ],
             ),
+            if (_customer!.phone != null && _customer!.phone!.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              GestureDetector(
+                onTap: () => _copyText('电话', _customer!.phone!),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.phone, size: 16, color: Colors.grey[600]),
+                    const SizedBox(width: 6),
+                    Text(
+                      _customer!.phone!,
+                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             if (_customer!.tags.isNotEmpty) ...[
               const SizedBox(height: 12),
               Wrap(
@@ -896,14 +871,9 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: Colors.grey[200]!),
                 ),
-                child: Text(
-                  summary,
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.7,
-                    color: Colors.black87,
-                  ),
-                ),
+                child: _buildExpandableText(summary, _summaryExpanded, () {
+                  setState(() => _summaryExpanded = !_summaryExpanded);
+                }),
               )
             else
               Container(
@@ -942,9 +912,10 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     );
   }
 
-  Widget _buildCustomerAiSection() {
+  Widget _buildNextStepSuggestionSection() {
+    final hasAdvice = _adviceText.isNotEmpty;
+
     return Card(
-      key: _customerAiSectionKey,
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
@@ -952,92 +923,81 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Row(
+            Row(
               children: [
-                Icon(Icons.psychology_outlined, color: Color(0xFF0F766E)),
-                SizedBox(width: 8),
-                Text(
-                  '客户单独提问 AI',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                const Expanded(
+                  child: Row(
+                    children: [
+                      Icon(Icons.lightbulb_outline, color: Color(0xFF0F766E)),
+                      SizedBox(width: 8),
+                      Text(
+                        '下一步建议',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  onPressed: _isRefreshingAdvice ? null : _refreshAdvice,
+                  icon: _isRefreshingAdvice
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.refresh),
+                  tooltip: '刷新',
+                ),
+                IconButton(
+                  onPressed: hasAdvice
+                      ? () => _copyText('下一步建议', _adviceText)
+                      : null,
+                  icon: const Icon(Icons.copy_outlined),
+                  tooltip: '复制',
+                ),
+                IconButton(
+                  onPressed: hasAdvice
+                      ? () => _shareText('下一步建议', _adviceText)
+                      : null,
+                  icon: const Icon(Icons.ios_share_outlined),
+                  tooltip: '分享',
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _customerAiController,
-              focusNode: _customerAiFocusNode,
-              maxLines: 3,
-              minLines: 2,
-              decoration: InputDecoration(
-                hintText: '例如：这个客户最可能关心什么？我下一次沟通该怎么开场？',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                contentPadding: const EdgeInsets.all(14),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
+            Container(
               width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: _isAskingCustomerAi ? null : _askCustomerAi,
-                icon: _isAskingCustomerAi
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.send_outlined),
-                label: Text(_isAskingCustomerAi ? '思考中...' : '提问'),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF3FAF8),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFBFE4DD)),
               ),
+              child: hasAdvice
+                  ? _buildExpandableText(_adviceText, _adviceExpanded, () {
+                      setState(() => _adviceExpanded = !_adviceExpanded);
+                    })
+                  : Text(
+                      '根据客户画像和最近沟通记录，生成下一次拜访前最值得关注的问题、开场方式和跟进重点。',
+                      style: TextStyle(fontSize: 14, height: 1.65, color: Colors.grey[700]),
+                    ),
             ),
-            if (_customerAiAnswer != null &&
-                _customerAiAnswer!.trim().isNotEmpty)
-              Container(
-                width: double.infinity,
-                margin: const EdgeInsets.only(top: 14),
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF3FAF8),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFBFE4DD)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text(
-                            'AI 回答',
-                            style: TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        IconButton(
-                          onPressed: () =>
-                              _copyText('AI 回答', _customerAiAnswer!),
-                          icon: const Icon(Icons.copy_outlined, size: 18),
-                          tooltip: '复制',
-                        ),
-                        IconButton(
-                          onPressed: () =>
-                              _shareText('客户 AI 回答', _customerAiAnswer!),
-                          icon: const Icon(Icons.ios_share_outlined, size: 18),
-                          tooltip: '分享',
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _customerAiAnswer!,
-                      style: const TextStyle(fontSize: 14, height: 1.7),
-                    ),
-                  ],
-                ),
+            if (_adviceUpdatedAt != null && _adviceUpdatedAt!.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                '上次生成：${_adviceUpdatedAt!.replaceFirst('T', ' ').split('.').first}',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
               ),
+            ] else if (!hasAdvice) ...[
+              const SizedBox(height: 8),
+              Text(
+                '点击右上角刷新图标生成',
+                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
+              ),
+            ],
           ],
         ),
       ),
@@ -1359,6 +1319,38 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     );
   }
 
+  static const int _expandThreshold = 150;
+
+  Widget _buildExpandableText(String text, bool expanded, VoidCallback onToggle) {
+    final needsToggle = text.length > _expandThreshold;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        MarkdownBody(
+          data: needsToggle && !expanded ? '${text.substring(0, _expandThreshold)}...' : text,
+          selectable: true,
+          styleSheet: MarkdownStyleSheet(
+            p: const TextStyle(fontSize: 14, height: 1.7, color: Colors.black87),
+            strong: const TextStyle(fontWeight: FontWeight.w700),
+            h1: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+            h2: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+            h3: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
+          ),
+        ),
+        if (needsToggle)
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton(
+              onPressed: onToggle,
+              child: Text(expanded ? '收起 ▲' : '展开全部 ▼',
+                  style: const TextStyle(fontSize: 12)),
+            ),
+          ),
+      ],
+    );
+  }
+
   bool _looksLikeTableText(String text) {
     final lines = text.split('\n');
     final pipeHeavyLines = lines.where((line) => line.contains('|')).length;
@@ -1468,58 +1460,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     );
   }
 
-  Widget _buildBottomBar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 8,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                onPressed: () => _scrollToCustomerAiSection(requestFocus: true),
-                icon: const Icon(Icons.psychology_outlined),
-                label: const Text('客户 AI'),
-                style: OutlinedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: ElevatedButton.icon(
-                onPressed: _generateAndShowAdvice,
-                icon: const Icon(Icons.lightbulb),
-                label: const Text('拜访建议', style: TextStyle(fontSize: 16)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2196F3),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size.fromHeight(48),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildDeleteButton() {
     return OutlinedButton.icon(
       onPressed: _showDeleteConfirmDialog,
@@ -1532,6 +1472,39 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
     );
+  }
+
+  String get _locationDisplay {
+    final c = _customer;
+    if (c == null) return '';
+    final parts = <String>[
+      if (c.locationRaw != null && c.locationRaw!.isNotEmpty) c.locationRaw!,
+      if (c.locationDistrict != null && c.locationDistrict!.isNotEmpty)
+        c.locationDistrict!,
+      if (c.locationSubarea != null && c.locationSubarea!.isNotEmpty)
+        c.locationSubarea!,
+    ];
+    // 去重：避免 location_raw 已经包含下级信息时重复显示
+    final seen = <String>{};
+    final unique = <String>[];
+    for (final p in parts) {
+      final trimmed = p.trim();
+      if (trimmed.isNotEmpty && seen.add(trimmed)) {
+        unique.add(trimmed);
+      }
+    }
+    return unique.join(' · ');
+  }
+
+  String _displayGender(String raw) {
+    switch (raw.trim()) {
+      case 'male':
+        return '男';
+      case 'female':
+        return '女';
+      default:
+        return raw;
+    }
   }
 
   String _pad(int value) => value.toString().padLeft(2, '0');

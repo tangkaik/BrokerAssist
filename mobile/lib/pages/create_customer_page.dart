@@ -1,10 +1,9 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import 'customer_detail_page.dart';
 
 /// 创建新客户页
 ///
@@ -19,8 +18,6 @@ class CreateCustomerPage extends StatefulWidget {
 }
 
 class _CreateCustomerPageState extends State<CreateCustomerPage> {
-  final ImagePicker _imagePicker = ImagePicker();
-
   /// 从首页传来的草稿数据
   DraftRecord? _draft;
 
@@ -32,6 +29,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
   final _nameController = TextEditingController();
   String? _selectedGender;
   final _ageController = TextEditingController();
+  final _locationController = TextEditingController();
   final List<String> _tags = [];
   final _tagController = TextEditingController();
 
@@ -59,6 +57,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
     _contentController.dispose();
     _nameController.dispose();
     _ageController.dispose();
+    _locationController.dispose();
     _tagController.dispose();
     super.dispose();
   }
@@ -88,12 +87,6 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
     }
 
     final content = _contentController.text.trim();
-    if (content.isEmpty) {
-      setState(() {
-        _error = '请输入记录内容';
-      });
-      return;
-    }
 
     setState(() {
       _isLoading = true;
@@ -107,6 +100,9 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
         name: _nameController.text.trim(),
         gender: _selectedGender,
         age: age,
+        location: _locationController.text.trim().isNotEmpty
+            ? _locationController.text.trim()
+            : null,
         tags: _tags.isNotEmpty ? _tags : null,
       );
 
@@ -132,6 +128,14 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
           _isLoading = false;
           _error = '创建客户成功但返回数据异常，缺少 customer_id';
         });
+        return;
+      }
+
+      if (content.isEmpty) {
+        setState(() {
+          _isLoading = false;
+        });
+        _navigateToCustomerDetail(customerId);
         return;
       }
 
@@ -213,20 +217,6 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
     }
   }
 
-  Future<void> _pickImages() async {
-    final images = await _imagePicker.pickMultiImage(imageQuality: 85);
-    if (images.isEmpty) return;
-    setState(() {
-      _selectedImages.addAll(images);
-    });
-  }
-
-  void _removeImage(XFile image) {
-    setState(() {
-      _selectedImages.remove(image);
-    });
-  }
-
   /// 跳转到客户详情页
   void _navigateToCustomerDetail(String customerId) {
     // 返回 true 通知首页成功
@@ -235,7 +225,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
     // 延迟跳转，确保 pop 完成
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
-        Navigator.pushNamed(context, '/customer-detail', arguments: customerId);
+        Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customerId)));
       }
     });
   }
@@ -269,15 +259,6 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // 草稿内容区域
-                  _buildDraftSection(),
-
-                  const SizedBox(height: 16),
-
-                  _buildImageSection(),
-
-                  const SizedBox(height: 16),
-
                   // 客户表单
                   _buildCustomerForm(),
 
@@ -321,7 +302,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
                     child: ElevatedButton(
                       onPressed: _createCustomer,
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue.shade600,
+                        backgroundColor: const Color(0xFF0F766E),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16),
                         shape: RoundedRectangleBorder(
@@ -329,7 +310,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
                         ),
                       ),
                       child: const Text(
-                        'OK，创建',
+                        '创建客户',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
@@ -340,132 +321,6 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
                 ],
               ),
             ),
-    );
-  }
-
-  /// 草稿内容区域
-  Widget _buildDraftSection() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                Icon(Icons.edit_note, size: 18, color: Colors.grey.shade600),
-                const SizedBox(width: 8),
-                Text(
-                  '待录入内容（可编辑）',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          TextField(
-            controller: _contentController,
-            maxLines: 4,
-            minLines: 2,
-            decoration: InputDecoration(
-              hintText: '请输入记录内容...',
-              hintStyle: TextStyle(color: Colors.grey.shade400),
-              contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              border: InputBorder.none,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildImageSection() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.photo_library_outlined, color: Colors.grey.shade700),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  '附加图片',
-                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
-                ),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: _pickImages,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('选择图片'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            _selectedImages.isEmpty
-                ? '可为这次新建记录一并上传拜访照片、聊天截图或保单图片。'
-                : '已选择 ${_selectedImages.length} 张图片',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          if (_selectedImages.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _selectedImages.map((image) {
-                return Stack(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Image.file(
-                        File(image.path),
-                        width: 88,
-                        height: 88,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: GestureDetector(
-                        onTap: () => _removeImage(image),
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.black54,
-                            shape: BoxShape.circle,
-                          ),
-                          padding: const EdgeInsets.all(2),
-                          child: const Icon(
-                            Icons.close,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
-          ],
-        ],
-      ),
     );
   }
 
@@ -503,49 +358,55 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
 
             const SizedBox(height: 16),
 
-            // 性别和年龄
+            // 性别
             Row(
               children: [
-                // 性别
-                Expanded(
-                  flex: 1,
-                  child: DropdownButtonFormField<String>(
-                    initialValue: _selectedGender,
-                    decoration: InputDecoration(
-                      labelText: '性别',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    items: const [
-                      DropdownMenuItem(value: null, child: Text('未选择')),
-                      DropdownMenuItem(value: 'male', child: Text('男')),
-                      DropdownMenuItem(value: 'female', child: Text('女')),
-                    ],
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedGender = value;
-                      });
-                    },
-                  ),
+                const Text('性别：', style: TextStyle(color: Colors.black54, fontSize: 14)),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('男'),
+                  selected: _selectedGender == 'male',
+                  onSelected: (_) => setState(() => _selectedGender = 'male'),
                 ),
-                const SizedBox(width: 16),
-                // 年龄
-                Expanded(
-                  flex: 1,
-                  child: TextFormField(
-                    controller: _ageController,
-                    keyboardType: TextInputType.number,
-                    decoration: InputDecoration(
-                      labelText: '年龄',
-                      hintText: '诸位数字',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                  ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('女'),
+                  selected: _selectedGender == 'female',
+                  onSelected: (_) => setState(() => _selectedGender = 'female'),
                 ),
+                const SizedBox(width: 8),
+                if (_selectedGender != null)
+                  GestureDetector(
+                    onTap: () => setState(() => _selectedGender = null),
+                    child: const Text('清除', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                  ),
               ],
+            ),
+            const SizedBox(height: 16),
+            // 年龄
+            TextFormField(
+              controller: _ageController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: '年龄',
+                hintText: '输入数字',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            TextFormField(
+              controller: _locationController,
+              decoration: InputDecoration(
+                labelText: '客户主地址',
+                hintText: '如：西二旗、望京SOHO、国贸',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
             ),
 
             const SizedBox(height: 16),

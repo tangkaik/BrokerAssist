@@ -9,18 +9,32 @@ import 'package:record/record.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import 'create_customer_page.dart';
+import 'add_to_existing_page.dart';
+import 'api_settings_page.dart';
 
 /// 拜访记录录入页
 ///
 /// 产品定位：文本框是核心，录音只是输入来源之一
 class DraftRecordPage extends StatefulWidget {
-  const DraftRecordPage({super.key});
+  final String? customerId;
+  final String? customerName;
+
+  const DraftRecordPage({super.key, this.customerId, this.customerName});
 
   @override
   State<DraftRecordPage> createState() => _DraftRecordPageState();
 }
 
 class _DraftRecordPageState extends State<DraftRecordPage> {
+  static const bool _showToolbarLabels = false;
+  static const Color _background = Color(0xFFF6F7F9);
+  static const Color _ink = Color(0xFF111827);
+  static const Color _muted = Color(0xFF6B7280);
+  static const Color _border = Color(0xFFE5E7EB);
+  static const Color _teal = Color(0xFF0F766E);
+  static const Color _navy = Color(0xFF1E3A5F);
+
   final ImagePicker _imagePicker = ImagePicker();
 
   /// 核心状态：草稿记录
@@ -35,6 +49,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   bool _isRecording = false;
   String? _recordedPath;
   bool _isPlaying = false;
+  StateSetter? _audioSheetSetState;
   Duration _audioDuration = Duration.zero;
   Duration _audioPosition = Duration.zero;
   Duration _recordingDuration = Duration.zero;
@@ -47,6 +62,8 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   Timer? _pollTimer;
   String? _transcriptionError;
   final List<XFile> _selectedImages = [];
+  _ArchiveTarget _archiveTarget = _ArchiveTarget.existingCustomer;
+  bool _isSubmitting = false;
 
   @override
   void initState() {
@@ -82,6 +99,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         setState(() {
           _isPlaying = state == PlayerState.playing;
         });
+        _refreshAudioSheet();
       }
     });
     _audioPlayer.onDurationChanged.listen((duration) {
@@ -90,6 +108,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         setState(() {
           _audioDuration = duration;
         });
+        _refreshAudioSheet();
       }
     });
     _audioPlayer.onPositionChanged.listen((position) {
@@ -97,8 +116,13 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         setState(() {
           _audioPosition = position;
         });
+        _refreshAudioSheet();
       }
     });
+  }
+
+  void _refreshAudioSheet() {
+    _audioSheetSetState?.call(() {});
   }
 
   /// 开始录音
@@ -133,6 +157,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         _recordingDuration = Duration.zero;
         _transcriptionError = null;
       });
+      _refreshAudioSheet();
 
       // 开始计时
       _recordingTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -140,6 +165,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         setState(() {
           _recordingDuration += const Duration(seconds: 1);
         });
+        _refreshAudioSheet();
       });
     } catch (e) {
       debugPrint('❌ 录音失败: $e');
@@ -156,6 +182,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
       setState(() {
         _isRecording = false;
       });
+      _refreshAudioSheet();
 
       // 预加载音频以获取时长
       if (_recordedPath != null) {
@@ -183,6 +210,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
             setState(() {
               _audioDuration = duration;
             });
+            _refreshAudioSheet();
           }
         } catch (e) {
           debugPrint('❌ 获取音频时长失败: $e');
@@ -239,6 +267,33 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
       _transcriptionId = null;
       _transcriptionError = null;
     });
+    _refreshAudioSheet();
+  }
+
+  Future<void> _confirmRestartRecording() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('重新开始？'),
+          content: const Text('这会清除刚才的录音，是否继续？'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('继续'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (confirmed == true) {
+      await _deleteRecording();
+    }
   }
 
   /// 手动触发转写
@@ -252,6 +307,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
       _isTranscribing = true;
       _transcriptionError = null;
     });
+    _refreshAudioSheet();
 
     try {
       final response = await apiService.uploadAndTranscribe(_recordedPath!);
@@ -267,23 +323,27 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
             _isTranscribing = false;
             _transcriptionError = '上传成功但返回数据异常: 缺少 transcription_id';
           });
+          _refreshAudioSheet();
           return;
         }
         setState(() {
           _transcriptionId = id;
         });
+        _refreshAudioSheet();
         _startPolling();
       } else {
         setState(() {
           _isTranscribing = false;
           _transcriptionError = response.error?.message ?? '上传失败';
         });
+        _refreshAudioSheet();
       }
     } catch (e) {
       setState(() {
         _isTranscribing = false;
         _transcriptionError = '转写请求失败: $e';
       });
+      _refreshAudioSheet();
     }
   }
 
@@ -310,6 +370,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
             setState(() {
               _isTranscribing = false;
             });
+            _refreshAudioSheet();
             _textController.text = text;
             _textController.selection = TextSelection.fromPosition(
               TextPosition(offset: text.length),
@@ -323,6 +384,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
                   ? transcription.errorMessage
                   : '转写失败';
             });
+            _refreshAudioSheet();
           }
         } else {
           timer.cancel();
@@ -330,6 +392,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
             _isTranscribing = false;
             _transcriptionError = '查询状态失败';
           });
+          _refreshAudioSheet();
         }
       } catch (e) {
         if (!mounted) return;
@@ -367,6 +430,24 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
     });
   }
 
+  Future<void> _takePhoto() async {
+    final picked = await _imagePicker.pickImage(
+      source: ImageSource.camera,
+      imageQuality: 85,
+    );
+    if (picked == null) return;
+    setState(() {
+      _selectedImages.add(picked);
+      _draft = DraftRecord(
+        transcriptionId: _transcriptionId,
+        transcriptText: _textController.text,
+        customerId: _draft.customerId,
+        imagePaths: _selectedImages.map((item) => item.path).toList(),
+        createdAt: _draft.createdAt,
+      );
+    });
+  }
+
   void _removeImage(XFile image) {
     setState(() {
       _selectedImages.remove(image);
@@ -387,10 +468,12 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
       _showError('请先输入记录内容');
       return;
     }
-    final result = await Navigator.pushNamed(
+    final result = await Navigator.push<bool>(
       context,
-      '/create-customer',
-      arguments: {'draft': _draft},
+      MaterialPageRoute(
+        builder: (_) => CreateCustomerPage(),
+        settings: RouteSettings(arguments: {'draft': _draft}),
+      ),
     );
     // 如果创建成功，清空首页状态
     if (result == true && mounted) {
@@ -408,10 +491,12 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
       _showError('请先输入记录内容');
       return;
     }
-    final result = await Navigator.pushNamed(
+    final result = await Navigator.push<bool>(
       context,
-      '/add-to-existing',
-      arguments: {'draft': _draft},
+      MaterialPageRoute(
+        builder: (_) => AddToExistingPage(),
+        settings: RouteSettings(arguments: {'draft': _draft}),
+      ),
     );
     // 如果添加成功，清空首页状态
     if (result == true && mounted) {
@@ -426,6 +511,17 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text(message), backgroundColor: Colors.red),
     );
+  }
+
+  Future<void> _autoRefreshSummaryAndAdvice() async {
+    final cid = widget.customerId;
+    if (cid == null || cid.isEmpty) return;
+    try {
+      await apiService.generateSummary(cid);
+      await apiService.generateAdvice(cid);
+    } catch (_) {
+      // 静默失败
+    }
   }
 
   /// 清空所有内容
@@ -455,108 +551,126 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.grey.shade50,
+      backgroundColor: _background,
       appBar: AppBar(
         title: GestureDetector(
           onLongPress: () {
-            Navigator.pushNamed(context, '/api-settings');
+            Navigator.push(context, MaterialPageRoute(builder: (_) => ApiSettingsPage()));
           },
-          child: const Text('拜访记录'),
+          child: const Text('记录沟通'),
         ),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 0.5,
+        backgroundColor: _background,
+        foregroundColor: _ink,
+        elevation: 0,
         actions: [
-          TextButton.icon(
+          IconButton(
+            tooltip: '清空',
             onPressed: _clearAll,
-            icon: const Icon(Icons.clear_all, size: 18),
-            label: const Text('清空'),
-            style: TextButton.styleFrom(foregroundColor: Colors.grey.shade600),
+            icon: const Icon(Icons.delete_sweep_outlined),
           ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
-        child: Column(
-          children: [
-            Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildTextArea(),
-                    const SizedBox(height: 16),
-                    _buildImageSection(),
-                    const SizedBox(height: 16),
-                    _buildAudioSection(),
-                  ],
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_hasPreSelectedCustomer)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  margin: const EdgeInsets.only(bottom: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE7F5F2),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.person, color: _teal, size: 20),
+                      const SizedBox(width: 8),
+                      Text(
+                        '记录给：${widget.customerName ?? "客户"}',
+                        style: const TextStyle(
+                          color: _teal,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 15,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ),
-            _buildBottomActions(),
-          ],
+              _buildIntroCard(),
+              const SizedBox(height: 14),
+              Expanded(child: _buildTextArea(expanded: true)),
+              const SizedBox(height: 12),
+              _buildBottomActions(),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  /// 构建文本输入区域
-  Widget _buildTextArea() {
+  Widget _buildIntroCard() {
     return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 标题栏
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: Row(
-              children: [
-                Icon(Icons.edit_note, size: 18, color: Colors.grey.shade600),
-                const SizedBox(width: 8),
-                Text(
-                  '记录内容',
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE7F5F2),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.route_outlined, color: _teal),
+              ),
+              const SizedBox(width: 12),
+              const Expanded(
+                child: Text(
+                  '1. 写下或录音记录本次沟通\n2. 提交到新客户或已有客户\n3. AI 自动整理画像和跟进建议',
                   style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade700,
+                    color: _ink,
+                    fontSize: 13,
+                    height: 1.45,
                   ),
                 ),
-                if (_isTranscribing) ...[
-                  const SizedBox(width: 8),
-                  const SizedBox(
-                    width: 12,
-                    height: 12,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '转写中...',
-                    style: TextStyle(fontSize: 12, color: Colors.blue.shade600),
-                  ),
-                ],
-              ],
-            ),
+              ),
+            ],
           ),
+        ],
+      ),
+    );
+  }
 
-          // 文本框
-          TextField(
-            controller: _textController,
-            maxLines: 8,
-            minLines: 4,
-            decoration: InputDecoration(
-              hintText: '请输入记录内容，或使用下方录音功能...',
-              hintStyle: TextStyle(color: Colors.grey.shade400),
-              contentPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              border: InputBorder.none,
-            ),
-          ),
-
-          // 转写错误提示
+  /// 构建文本输入区域
+  Widget _buildTextArea({bool expanded = false}) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (expanded)
+            Expanded(child: _buildRecordTextField(expanded: true))
+          else
+            _buildRecordTextField(),
+          if (_selectedImages.isNotEmpty) _buildAttachmentPreview(),
+          _buildComposerToolbar(),
           if (_transcriptionError != null)
             Container(
               width: double.infinity,
@@ -592,174 +706,238 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
     );
   }
 
-  /// 构建音频输入区域
-  Widget _buildAudioSection() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+  Widget _buildRecordTextField({bool expanded = false}) {
+    return TextField(
+      controller: _textController,
+      expands: expanded,
+      maxLines: expanded ? null : 10,
+      minLines: expanded ? null : 6,
+      textAlignVertical: TextAlignVertical.top,
+      decoration: InputDecoration(
+        hintText: '记录这次拜访聊了什么，客户有什么需求、顾虑、下一步动作...',
+        hintStyle: TextStyle(color: Colors.grey.shade400, height: 1.5),
+        contentPadding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+        border: InputBorder.none,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // 标题栏
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Row(
+    );
+  }
+
+  Widget _buildAttachmentPreview() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+      child: SizedBox(
+        height: 78,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: _selectedImages.length,
+          separatorBuilder: (_, _) => const SizedBox(width: 8),
+          itemBuilder: (context, index) {
+            final image = _selectedImages[index];
+            return Stack(
               children: [
-                Icon(Icons.mic, size: 18, color: Colors.grey.shade600),
-                const SizedBox(width: 8),
-                Text(
-                  '语音输入',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade700,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    File(image.path),
+                    width: 78,
+                    height: 78,
+                    fit: BoxFit.cover,
                   ),
                 ),
-                const Spacer(),
-                // 录音状态标签
-                if (_isRecording)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade50,
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.circular(3),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          '录音中 ${_formatDuration(_recordingDuration)}',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: Colors.red.shade600,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: GestureDetector(
+                    onTap: () => _removeImage(image),
+                    child: Container(
+                      decoration: const BoxDecoration(
+                        color: Colors.black54,
+                        shape: BoxShape.circle,
+                      ),
+                      padding: const EdgeInsets.all(2),
+                      child: const Icon(
+                        Icons.close,
+                        size: 15,
+                        color: Colors.white,
+                      ),
                     ),
                   ),
+                ),
               ],
-            ),
-          ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 
-          // 录音控件区域
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            child: _buildAudioControls(),
+  Widget _buildComposerToolbar() {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      decoration: const BoxDecoration(
+        border: Border(top: BorderSide(color: _border)),
+      ),
+      child: Row(
+        children: [
+          _buildToolbarAction(
+            label: '图片',
+            tooltip: '从相册选择图片',
+            icon: Icons.image_outlined,
+            onPressed: _pickImages,
+          ),
+          _buildToolbarAction(
+            label: '相机',
+            tooltip: '拍照',
+            icon: Icons.photo_camera_outlined,
+            onPressed: _takePhoto,
+          ),
+          if (_selectedImages.isNotEmpty) const SizedBox(width: 6),
+          if (_selectedImages.isNotEmpty)
+            Text(
+              '${_selectedImages.length} 张图片',
+              style: const TextStyle(
+                color: _muted,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          const Spacer(),
+          if (_isTranscribing) ...[
+            const SizedBox(
+              width: 16,
+              height: 16,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 8),
+            const Text('转写中', style: TextStyle(color: _muted, fontSize: 12)),
+            const SizedBox(width: 8),
+          ],
+          _buildToolbarAction(
+            label: '语音',
+            tooltip: '语音输入',
+            icon: Icons.mic_none_rounded,
+            onPressed: _openAudioInputSheet,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildImageSection() {
+  Widget _buildToolbarAction({
+    required String label,
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) {
+    if (_showToolbarLabels) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 6),
+        child: TextButton.icon(
+          onPressed: onPressed,
+          icon: Icon(icon, size: 18),
+          label: Text(label),
+          style: TextButton.styleFrom(
+            foregroundColor: _navy,
+            minimumSize: const Size(0, 40),
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(8),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      icon: Icon(icon),
+      color: _navy,
+    );
+  }
+
+  Future<void> _openAudioInputSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            _audioSheetSetState = setSheetState;
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [_buildAudioSection()],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    _audioSheetSetState = null;
+  }
+
+  /// 构建音频输入区域
+  Widget _buildAudioSection() {
     return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey.shade200),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: _border),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.photo_library_outlined,
-                  size: 18,
-                  color: Colors.grey.shade600,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '图片附件',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.grey.shade700,
-                  ),
-                ),
-                const Spacer(),
-                TextButton.icon(
-                  onPressed: _pickImages,
-                  icon: const Icon(
-                    Icons.add_photo_alternate_outlined,
-                    size: 18,
-                  ),
-                  label: const Text('添加图片'),
-                ),
-              ],
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildAudioRecorderHeader(),
+          const SizedBox(height: 16),
+          _buildAudioControls(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAudioRecorderHeader() {
+    final hasRecording = _recordedPath != null;
+    final label = _isTranscribing
+        ? '正在转写'
+        : _isRecording
+        ? '听写中'
+        : hasRecording
+        ? '录音完成'
+        : '语音听写';
+    final time = _isRecording ? _recordingDuration : _audioDuration;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: _ink,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
             ),
-            Text(
-              _selectedImages.isEmpty
-                  ? '先把拜访照片、聊天截图或保单图片带上，后面新建客户或补到老客户时会一起上传。'
-                  : '已选择 ${_selectedImages.length} 张图片',
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey.shade600,
-                height: 1.5,
-              ),
-            ),
-            if (_selectedImages.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _selectedImages.map((image) {
-                  return Stack(
-                    children: [
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: Image.file(
-                          File(image.path),
-                          width: 92,
-                          height: 92,
-                          fit: BoxFit.cover,
-                        ),
-                      ),
-                      Positioned(
-                        top: 4,
-                        right: 4,
-                        child: GestureDetector(
-                          onTap: () => _removeImage(image),
-                          child: Container(
-                            decoration: const BoxDecoration(
-                              color: Colors.black54,
-                              shape: BoxShape.circle,
-                            ),
-                            padding: const EdgeInsets.all(2),
-                            child: const Icon(
-                              Icons.close,
-                              size: 16,
-                              color: Colors.white,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  );
-                }).toList(),
-              ),
-            ],
-          ],
+          ),
         ),
-      ),
+        Text(
+          _formatDuration(time),
+          style: const TextStyle(
+            color: _muted,
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ],
     );
   }
 
@@ -767,18 +945,18 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   Widget _buildAudioControls() {
     // 录音中状态
     if (_isRecording) {
-      return Row(
+      return Column(
         children: [
-          // 停止录音按钮
-          Expanded(
-            child: ElevatedButton.icon(
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
               onPressed: _stopRecording,
-              icon: const Icon(Icons.stop_circle, size: 24),
-              label: const Text('停止录音'),
-              style: ElevatedButton.styleFrom(
+              icon: const Icon(Icons.stop_rounded, size: 22),
+              label: const Text('结束'),
+              style: FilledButton.styleFrom(
                 backgroundColor: Colors.red.shade500,
                 foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 12),
+                minimumSize: const Size.fromHeight(50),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
@@ -795,10 +973,11 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         children: [
           // 播放控件
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             decoration: BoxDecoration(
               color: Colors.grey.shade50,
               borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: _border),
             ),
             child: Column(
               children: [
@@ -807,13 +986,13 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
                   children: [
                     // 播放/暂停按钮
                     IconButton(
-                      onPressed: _togglePlayback,
+                      onPressed: _isTranscribing ? null : _togglePlayback,
                       icon: Icon(
                         _isPlaying
                             ? Icons.pause_circle_filled
                             : Icons.play_circle_filled,
                         size: 40,
-                        color: Colors.blue.shade600,
+                        color: _teal,
                       ),
                     ),
                     const SizedBox(width: 8),
@@ -828,15 +1007,18 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
                                 ? _audioPosition.inMilliseconds /
                                       _audioDuration.inMilliseconds
                                 : 0,
-                            onChanged: (value) async {
-                              final position = Duration(
-                                milliseconds:
-                                    (value * _audioDuration.inMilliseconds)
-                                        .round(),
-                              );
-                              await _audioPlayer.seek(position);
-                            },
-                            activeColor: Colors.blue.shade600,
+                            onChanged: _isTranscribing
+                                ? null
+                                : (value) async {
+                                    final position = Duration(
+                                      milliseconds:
+                                          (value *
+                                                  _audioDuration.inMilliseconds)
+                                              .round(),
+                                    );
+                                    await _audioPlayer.seek(position);
+                                  },
+                            activeColor: _teal,
                             inactiveColor: Colors.grey.shade300,
                           ),
                           // 时间显示
@@ -868,14 +1050,13 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
 
                     const SizedBox(width: 8),
 
-                    // 删除按钮
+                    // 重新开始
                     IconButton(
-                      onPressed: _deleteRecording,
-                      icon: Icon(
-                        Icons.delete_outline,
-                        color: Colors.red.shade400,
-                      ),
-                      tooltip: '删除录音',
+                      onPressed: _isTranscribing
+                          ? null
+                          : _confirmRestartRecording,
+                      icon: const Icon(Icons.refresh_rounded, color: _muted),
+                      tooltip: '重新开始',
                     ),
                   ],
                 ),
@@ -885,10 +1066,10 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
 
           const SizedBox(height: 12),
 
-          // 转写成文字按钮 - 必须明确可见
+          // 转成文字按钮 - 必须明确可见
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton.icon(
+            child: FilledButton.icon(
               onPressed: _isTranscribing ? null : _startTranscription,
               icon: _isTranscribing
                   ? const SizedBox(
@@ -900,15 +1081,16 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
                       ),
                     )
                   : const Icon(Icons.translate, size: 20),
-              label: Text(_isTranscribing ? '转写中...' : '转写成文字'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade600,
+              label: Text(_isTranscribing ? '转写中...' : '转成文字'),
+              style: FilledButton.styleFrom(
+                backgroundColor: _teal,
                 foregroundColor: Colors.white,
+                minimumSize: const Size.fromHeight(50),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
-                disabledBackgroundColor: Colors.blue.shade300,
+                disabledBackgroundColor: _teal.withValues(alpha: 0.45),
               ),
             ),
           ),
@@ -919,13 +1101,14 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
     // 初始状态 - 开始录音按钮（不那么突出）
     return SizedBox(
       width: double.infinity,
-      child: OutlinedButton.icon(
+      child: FilledButton.icon(
         onPressed: _startRecording,
-        icon: Icon(Icons.mic, color: Colors.red.shade500),
-        label: const Text('开始录音'),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.grey.shade700,
-          side: BorderSide(color: Colors.grey.shade300),
+        icon: const Icon(Icons.mic_none_rounded),
+        label: const Text('开始'),
+        style: FilledButton.styleFrom(
+          foregroundColor: Colors.white,
+          backgroundColor: _teal,
+          minimumSize: const Size.fromHeight(54),
           padding: const EdgeInsets.symmetric(vertical: 14),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         ),
@@ -935,75 +1118,263 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
 
   /// 底部操作按钮区域
   Widget _buildBottomActions() {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
+    if (_hasPreSelectedCustomer) {
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: _hasTextContent && !_isSubmitting ? _submitToPreSelectedCustomer : null,
+          icon: _isSubmitting
+              ? const SizedBox(width: 18, height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+              : const Icon(Icons.check_rounded, size: 20),
+          label: Text(_isSubmitting ? '保存中...' : '保存到${widget.customerName ?? "客户"}'),
+          style: FilledButton.styleFrom(
+            backgroundColor: _teal,
+            foregroundColor: Colors.white,
+            minimumSize: const Size.fromHeight(52),
+            padding: const EdgeInsets.symmetric(vertical: 14),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            disabledBackgroundColor: Colors.grey.shade200,
+            disabledForegroundColor: Colors.grey.shade500,
+          ),
+        ),
+      );
+    }
+    return SizedBox(
+      width: double.infinity,
+      child: FilledButton.icon(
+        onPressed: _hasTextContent ? _openArchiveTargetSheet : null,
+        icon: const Icon(Icons.check_rounded, size: 20),
+        label: const Text('提交'),
+        style: FilledButton.styleFrom(
+          backgroundColor: _teal,
+          foregroundColor: Colors.white,
+          minimumSize: const Size.fromHeight(52),
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          disabledBackgroundColor: Colors.grey.shade200,
+          disabledForegroundColor: Colors.grey.shade500,
+        ),
       ),
-      padding: const EdgeInsets.all(16),
-      child: SafeArea(
+    );
+  }
+
+  bool get _hasPreSelectedCustomer =>
+      widget.customerId != null && widget.customerId!.isNotEmpty;
+
+  Future<void> _submitToPreSelectedCustomer() async {
+    if (!_hasTextContent) {
+      _showError('请先输入记录内容');
+      return;
+    }
+    setState(() => _isSubmitting = true);
+    try {
+      final response = _selectedImages.isEmpty
+          ? await apiService.createRecordDirect(
+              customerId: widget.customerId!,
+              content: _textController.text.trim(),
+            )
+          : await apiService.createRecordWithImages(
+              customerId: widget.customerId!,
+              content: _textController.text.trim(),
+              imagePaths: _selectedImages.map((item) => item.path).toList(),
+            );
+      if (!mounted) return;
+      if (response.success) {
+        _clearAll();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已保存到${widget.customerName ?? "客户"}')),
+        );
+        // 后台刷新画像和建议
+        _autoRefreshSummaryAndAdvice();
+      } else {
+        _showError(response.error?.message ?? '保存失败');
+      }
+    } catch (e) {
+      if (mounted) _showError('保存失败: $e');
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _openArchiveTargetSheet() async {
+    if (!_hasTextContent) {
+      _showError('请先输入记录内容');
+      return;
+    }
+
+    final selected = await showModalBottomSheet<_ArchiveTarget>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) => _ArchiveTargetSheet(current: _archiveTarget),
+    );
+
+    if (selected == null || !mounted) return;
+    setState(() => _archiveTarget = selected);
+    _continueArchive();
+  }
+
+  void _continueArchive() {
+    if (_archiveTarget == _ArchiveTarget.existingCustomer) {
+      _navigateToAddToExisting();
+    } else {
+      _navigateToCreateCustomer();
+    }
+  }
+}
+
+class _ArchiveTargetSheet extends StatefulWidget {
+  const _ArchiveTargetSheet({required this.current});
+
+  final _ArchiveTarget current;
+
+  @override
+  State<_ArchiveTargetSheet> createState() => _ArchiveTargetSheetState();
+}
+
+class _ArchiveTargetSheetState extends State<_ArchiveTargetSheet> {
+  late _ArchiveTarget _selected = widget.current;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 两个主操作按钮
-            Row(
-              children: [
-                // 创建新客户
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _hasTextContent
-                        ? _navigateToCreateCustomer
-                        : null,
-                    icon: const Icon(Icons.person_add, size: 20),
-                    label: const Text('创建新客户'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue.shade600,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      disabledBackgroundColor: Colors.grey.shade200,
-                      disabledForegroundColor: Colors.grey.shade400,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                // 添加到老客户
-                Expanded(
-                  child: ElevatedButton.icon(
-                    onPressed: _hasTextContent
-                        ? _navigateToAddToExisting
-                        : null,
-                    icon: const Icon(Icons.person_add_alt_1, size: 20),
-                    label: const Text('添加到老客户'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.shade600,
-                      foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      disabledBackgroundColor: Colors.grey.shade200,
-                      disabledForegroundColor: Colors.grey.shade400,
-                    ),
-                  ),
-                ),
-              ],
+            const Text(
+              '这次记录属于谁？',
+              style: TextStyle(
+                color: _DraftRecordPageState._ink,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
             ),
-
-            // 空状态提示
-            if (!_hasTextContent)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  '请先输入内容或录音后继续',
-                  style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+            const SizedBox(height: 6),
+            const Text(
+              '选择这次记录要保存到哪里。',
+              style: TextStyle(
+                color: _DraftRecordPageState._muted,
+                fontSize: 13,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 14),
+            _buildArchiveChoice(
+              value: _ArchiveTarget.existingCustomer,
+              title: '已有客户',
+              subtitle: '把拜访记录添加到已有客户',
+              icon: Icons.people_alt_outlined,
+            ),
+            const SizedBox(height: 10),
+            _buildArchiveChoice(
+              value: _ArchiveTarget.newCustomer,
+              title: '新客户',
+              subtitle: '这是新客户拜访记录',
+              icon: Icons.person_add_alt_1_rounded,
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: () => Navigator.pop(context, _selected),
+                icon: const Icon(Icons.check_rounded, size: 20),
+                label: const Text('提交'),
+                style: FilledButton.styleFrom(
+                  backgroundColor: _DraftRecordPageState._teal,
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size.fromHeight(50),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
               ),
+            ),
           ],
         ),
       ),
     );
   }
+
+  Widget _buildArchiveChoice({
+    required _ArchiveTarget value,
+    required String title,
+    required String subtitle,
+    required IconData icon,
+  }) {
+    final selected = _selected == value;
+
+    return Material(
+      color: selected ? const Color(0xFFE7F5F2) : Colors.white,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: () => setState(() => _selected = value),
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? _DraftRecordPageState._teal
+                  : _DraftRecordPageState._border,
+            ),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                selected
+                    ? Icons.radio_button_checked_rounded
+                    : Icons.radio_button_unchecked_rounded,
+                color: selected
+                    ? _DraftRecordPageState._teal
+                    : _DraftRecordPageState._muted,
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                icon,
+                color: selected
+                    ? _DraftRecordPageState._teal
+                    : _DraftRecordPageState._navy,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: _DraftRecordPageState._ink,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        color: _DraftRecordPageState._muted,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
+
+enum _ArchiveTarget { existingCustomer, newCustomer }

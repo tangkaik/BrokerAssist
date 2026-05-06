@@ -128,6 +128,29 @@ class ApiClient {
     }
   }
 
+  Future<ApiResponse<T>> patch<T>(
+    String path, {
+    required T Function(dynamic) fromJsonT,
+    Map<String, dynamic>? body,
+  }) async {
+    try {
+      final url = Uri.parse(buildUrl(path));
+      final response = await _client
+          .patch(
+            url,
+            headers: jsonHeaders,
+            body: body != null ? jsonEncode(body) : null,
+          )
+          .timeout(Duration(seconds: AppConfig.receiveTimeout));
+
+      return _handleResponse(response, fromJsonT);
+    } on SocketException catch (_) {
+      return _error('NETWORK_ERROR', '网络连接失败');
+    } catch (e) {
+      return _error('UNKNOWN_ERROR', '请求失败');
+    }
+  }
+
   Future<ApiResponse<T>> postMultipartFile<T>(
     String path, {
     required String fieldName,

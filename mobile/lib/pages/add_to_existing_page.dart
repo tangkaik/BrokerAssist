@@ -1,11 +1,13 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:pinyin/pinyin.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../utils/customer_search.dart';
+import 'customer_detail_page.dart';
 
 /// 添加到老客户页
 ///
@@ -21,8 +23,6 @@ class AddToExistingPage extends StatefulWidget {
 }
 
 class _AddToExistingPageState extends State<AddToExistingPage> {
-  final ImagePicker _imagePicker = ImagePicker();
-
   /// 从首页传来的草稿数据
   DraftRecord? _draft;
 
@@ -35,7 +35,6 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
 
   /// 客户列表
   List<Customer> _customers = [];
-  Customer? _selectedCustomer;
   bool _isLoading = false;
   String? _error;
 
@@ -54,6 +53,7 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
       _selectedImages.addAll(
         (_draft?.imagePaths ?? const []).map((path) => XFile(path)),
       );
+      _searchCustomers('');
     }
   }
 
@@ -67,6 +67,7 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
 
   /// 搜索客户（带防抖）
   void _onSearchChanged(String keyword) {
+    setState(() {});
     _debounceTimer?.cancel();
     _debounceTimer = Timer(const Duration(milliseconds: 500), () {
       _searchCustomers(keyword);
@@ -75,21 +76,39 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
 
   /// 执行搜索
   Future<void> _searchCustomers(String keyword) async {
+    final normalizedKeyword = keyword.trim();
+    final useLocalPinyinSearch = isPinyinLikeKeyword(normalizedKeyword);
+
     setState(() {
       _isLoading = true;
       _error = null;
-      _selectedCustomer = null;
     });
 
     try {
       final response = await apiService.searchCustomers(
-        keyword: keyword.isEmpty ? null : keyword,
-        pageSize: 20,
+        keyword: normalizedKeyword.isEmpty || useLocalPinyinSearch
+            ? null
+            : normalizedKeyword,
+        pageSize: 200,
+        sortBy: 'name',
+        sortOrder: 'asc',
       );
 
       if (response.success && response.data != null) {
         setState(() {
-          _customers = response.data!.items;
+          final items = response.data!.items;
+          _customers =
+              (useLocalPinyinSearch
+                    ? items
+                          .where(
+                            (customer) => customerMatchesKeyword(
+                              customer,
+                              normalizedKeyword,
+                            ),
+                          )
+                          .toList()
+                    : items)
+                ..sort(_compareByPinyin);
           _isLoading = false;
         });
       } else {
@@ -106,22 +125,23 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
     }
   }
 
-  /// 选择客户
-  void _selectCustomer(Customer customer) {
-    setState(() {
-      _selectedCustomer = customer;
-    });
+  int _compareByPinyin(Customer a, Customer b) {
+    final pinyinA = PinyinHelper.getPinyinE(a.name);
+    final pinyinB = PinyinHelper.getPinyinE(b.name);
+    return pinyinA.compareTo(pinyinB);
+  }
+
+  String _groupLetter(Customer customer) {
+    if (customer.name.trim().isEmpty) return '#';
+    final pinyin = PinyinHelper.getPinyinE(customer.name).trim();
+    if (pinyin.isEmpty) return '#';
+    final letter = pinyin[0].toUpperCase();
+    final code = letter.codeUnitAt(0);
+    return code >= 65 && code <= 90 ? letter : '#';
   }
 
   /// 提交记录到选中客户
-  Future<void> _submitRecord() async {
-    if (_selectedCustomer == null) {
-      setState(() {
-        _error = '请先选择客户';
-      });
-      return;
-    }
-
+  Future<void> _submitRecord(Customer customer) async {
     final content = _contentController.text.trim();
     if (content.isEmpty) {
       setState(() {
@@ -136,7 +156,7 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
     });
 
     try {
-      final customerId = _selectedCustomer!.id;
+      final customerId = customer.id;
       final transcriptionId = _draft?.transcriptionId;
 
       ApiResponse<Map<String, dynamic>> recordResponse;
@@ -176,6 +196,10 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
       });
 
       if (recordResponse.success) {
+        try {
+          await apiService.generateSummary(customerId);
+          await apiService.generateAdvice(customerId);
+        } catch (_) {}
         _navigateToCustomerDetail(customerId);
       } else {
         setState(() {
@@ -190,20 +214,6 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
     }
   }
 
-  Future<void> _pickImages() async {
-    final images = await _imagePicker.pickMultiImage(imageQuality: 85);
-    if (images.isEmpty) return;
-    setState(() {
-      _selectedImages.addAll(images);
-    });
-  }
-
-  void _removeImage(XFile image) {
-    setState(() {
-      _selectedImages.remove(image);
-    });
-  }
-
   /// 跳转到客户详情页
   void _navigateToCustomerDetail(String customerId) {
     // 返回 true 通知首页成功
@@ -212,7 +222,7 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
     // 延迟跳转，确保 pop 完成
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
-        Navigator.pushNamed(context, '/customer-detail', arguments: customerId);
+        Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customerId)));
       }
     });
   }
@@ -222,7 +232,7 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
     return Scaffold(
       backgroundColor: Colors.grey.shade50,
       appBar: AppBar(
-        title: const Text('添加到老客户'),
+        title: const Text('选择客户'),
         backgroundColor: Colors.white,
         foregroundColor: Colors.black87,
         elevation: 0.5,
@@ -241,141 +251,7 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
                 ],
               ),
             )
-          : Column(
-              children: [
-                // 上半部分 - 草稿内容
-                _buildDraftSection(),
-
-                _buildImageSection(),
-
-                // 中间部分 - 搜索和列表
-                Expanded(child: _buildSearchSection()),
-
-                // 底部 - 提交按钮
-                _buildBottomSubmit(),
-              ],
-            ),
-    );
-  }
-
-  /// 草稿内容区域
-  Widget _buildDraftSection() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.edit_note, size: 18, color: Colors.grey.shade600),
-              const SizedBox(width: 8),
-              Text(
-                '待添加内容（可编辑）',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: Colors.grey.shade700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _contentController,
-            maxLines: 3,
-            minLines: 2,
-            decoration: InputDecoration(
-              hintText: '请输入记录内容...',
-              hintStyle: TextStyle(color: Colors.grey.shade400),
-              filled: true,
-              fillColor: Colors.grey.shade50,
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(8),
-                borderSide: BorderSide.none,
-              ),
-              contentPadding: const EdgeInsets.all(12),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildImageSection() {
-    return Container(
-      color: Colors.white,
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.photo_library_outlined, color: Colors.grey.shade600),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  '附加图片',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                ),
-              ),
-              FilledButton.tonalIcon(
-                onPressed: _pickImages,
-                icon: const Icon(Icons.add_photo_alternate_outlined),
-                label: const Text('选择图片'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            _selectedImages.isEmpty
-                ? '给这条新增记录一起上传图片。'
-                : '已选择 ${_selectedImages.length} 张图片',
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
-          ),
-          if (_selectedImages.isNotEmpty) ...[
-            const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: _selectedImages.map((image) {
-                return Stack(
-                  children: [
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: Image.file(
-                        File(image.path),
-                        width: 84,
-                        height: 84,
-                        fit: BoxFit.cover,
-                      ),
-                    ),
-                    Positioned(
-                      top: 4,
-                      right: 4,
-                      child: GestureDetector(
-                        onTap: () => _removeImage(image),
-                        child: Container(
-                          decoration: const BoxDecoration(
-                            color: Colors.black54,
-                            shape: BoxShape.circle,
-                          ),
-                          padding: const EdgeInsets.all(2),
-                          child: const Icon(
-                            Icons.close,
-                            size: 16,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                );
-              }).toList(),
-            ),
-          ],
-        ],
-      ),
+          : Column(children: [Expanded(child: _buildSearchSection())]),
     );
   }
 
@@ -467,58 +343,71 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
                         ),
                         const SizedBox(height: 8),
                         Text(
-                          _searchController.text.isEmpty
-                              ? '请输入关键词搜索客户'
-                              : '未找到匹配的客户',
+                          _searchController.text.isEmpty ? '暂无客户' : '未找到匹配的客户',
                           style: TextStyle(color: Colors.grey.shade500),
                         ),
                       ],
                     ),
                   )
-                : ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _customers.length,
-                    itemBuilder: (context, index) {
-                      final customer = _customers[index];
-                      final isSelected = _selectedCustomer?.id == customer.id;
-                      return _buildCustomerItem(customer, isSelected);
-                    },
-                  ),
+                : _buildGroupedCustomerList(),
           ),
         ],
       ),
     );
   }
 
+  Widget _buildGroupedCustomerList() {
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      itemCount: _customers.length,
+      itemBuilder: (context, index) {
+        final customer = _customers[index];
+        final letter = _groupLetter(customer);
+        final showHeader =
+            index == 0 || _groupLetter(_customers[index - 1]) != letter;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (showHeader)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 14, 4, 6),
+                child: Text(
+                  letter,
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            _buildCustomerItem(customer),
+          ],
+        );
+      },
+    );
+  }
+
   /// 客户列表项
-  Widget _buildCustomerItem(Customer customer, bool isSelected) {
+  Widget _buildCustomerItem(Customer customer) {
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
       elevation: 0,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
-        side: BorderSide(
-          color: isSelected ? Colors.blue.shade300 : Colors.grey.shade200,
-          width: isSelected ? 2 : 1,
-        ),
+        side: BorderSide(color: Colors.grey.shade200),
       ),
       child: ListTile(
         leading: CircleAvatar(
-          backgroundColor: isSelected
-              ? Colors.blue.shade100
-              : Colors.grey.shade100,
+          backgroundColor: const Color(0xFFE7F5F2),
           child: Text(
             customer.name.isNotEmpty ? customer.name[0] : '?',
-            style: TextStyle(
-              color: isSelected ? Colors.blue.shade700 : Colors.grey.shade700,
-            ),
+            style: const TextStyle(color: Color(0xFF0F766E)),
           ),
         ),
         title: Text(
           customer.name,
-          style: TextStyle(
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
-          ),
+          style: const TextStyle(fontWeight: FontWeight.w600),
         ),
         subtitle: customer.summary != null && customer.summary!.isNotEmpty
             ? Text(
@@ -528,83 +417,14 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
               )
             : null,
-        trailing: isSelected
-            ? Icon(Icons.check_circle, color: Colors.blue.shade600)
-            : Icon(Icons.chevron_right, color: Colors.grey.shade400),
-        onTap: () => _selectCustomer(customer),
-      ),
-    );
-  }
-
-  /// 底部提交区域
-  Widget _buildBottomSubmit() {
-    final canSubmit =
-        _selectedCustomer != null && _contentController.text.trim().isNotEmpty;
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: Colors.grey.shade200)),
-      ),
-      child: SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // 选中客户提示
-            if (_selectedCustomer != null)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.check_circle,
-                      color: Colors.green.shade500,
-                      size: 18,
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '已选择: ${_selectedCustomer!.name}',
-                        style: TextStyle(
-                          color: Colors.green.shade700,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
-                    ),
-                    TextButton(
-                      onPressed: () {
-                        setState(() {
-                          _selectedCustomer = null;
-                        });
-                      },
-                      child: const Text('取消选择'),
-                    ),
-                  ],
-                ),
-              ),
-
-            // 提交按钮
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton.icon(
-                onPressed: canSubmit ? _submitRecord : null,
-                icon: const Icon(Icons.add, size: 20),
-                label: const Text('加入到此客户'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.green.shade600,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  disabledBackgroundColor: Colors.grey.shade200,
-                  disabledForegroundColor: Colors.grey.shade400,
-                ),
-              ),
-            ),
-          ],
+        trailing: const Text(
+          '添加',
+          style: TextStyle(
+            color: Color(0xFF0F766E),
+            fontWeight: FontWeight.w700,
+          ),
         ),
+        onTap: () => _submitRecord(customer),
       ),
     );
   }

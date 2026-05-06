@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
-from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, UserProfile
+from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, UserPreferencesUpdate, UserProfile
 
 
 class AuthService:
@@ -43,6 +43,22 @@ class AuthService:
 
     async def get_user_by_id(self, user_id: str) -> User | None:
         return await self.session.get(User, user_id)
+
+    async def update_preferences(
+        self,
+        user: User,
+        data: UserPreferencesUpdate,
+    ) -> UserProfile:
+        user = await self.session.get(User, user.id)
+        if user is None:
+            raise ValueError("用户不存在")
+        if user.industry_selected and user.industry_key != data.industry_key:
+            raise ValueError("行业已在首次选择后锁定，不能修改")
+        user.industry_key = data.industry_key
+        user.industry_selected = True
+        await self.session.flush()
+        await self.session.refresh(user)
+        return UserProfile.model_validate(user)
 
     def _build_auth_response(self, user: User) -> AuthResponse:
         token = create_access_token(user_id=user.id, account=user.account)

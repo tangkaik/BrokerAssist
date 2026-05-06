@@ -42,4 +42,14 @@ class AuthApi {
       fromJsonT: (data) => AuthUser.fromJson(data as Map<String, dynamic>),
     );
   }
+
+  Future<ApiResponse<AuthUser>> updatePreferences({
+    required String industryKey,
+  }) async {
+    return _client.patch(
+      '/auth/me/preferences',
+      fromJsonT: (data) => AuthUser.fromJson(data as Map<String, dynamic>),
+      body: {'industry_key': industryKey},
+    );
+  }
 }

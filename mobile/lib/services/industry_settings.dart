@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'api.dart';
 import 'auth_session.dart';
 
 class IndustryOption {
@@ -8,19 +9,22 @@ class IndustryOption {
   final String label;
   final String workspaceLabel;
   final IconData icon;
+  final String quickTip;
 
   const IndustryOption({
     required this.key,
     required this.label,
     required this.workspaceLabel,
     required this.icon,
+    required this.quickTip,
   });
 
   static const generic = IndustryOption(
     key: 'generic',
     label: '通用',
-    workspaceLabel: '通用顾问工作区',
+    workspaceLabel: '通用顾问',
     icon: Icons.work_outline_rounded,
+    quickTip: '把每次客户沟通记下来，AI 自动回顾并帮你判断下次跟进时机',
   );
 
   static const options = [
@@ -28,32 +32,16 @@ class IndustryOption {
     IndustryOption(
       key: 'insurance',
       label: '保险经纪',
-      workspaceLabel: '保险顾问工作区',
+      workspaceLabel: '保险顾问',
       icon: Icons.health_and_safety_outlined,
+      quickTip: '每次见完客户，打开录音说 60 秒，AI 自动帮你整理要点和下一步建议',
     ),
     IndustryOption(
       key: 'real_estate',
       label: '房产顾问',
-      workspaceLabel: '房产顾问工作区',
+      workspaceLabel: '房产顾问',
       icon: Icons.apartment_rounded,
-    ),
-    IndustryOption(
-      key: 'education',
-      label: '教育咨询',
-      workspaceLabel: '教育顾问工作区',
-      icon: Icons.school_outlined,
-    ),
-    IndustryOption(
-      key: 'medical_beauty',
-      label: '医美咨询',
-      workspaceLabel: '医美顾问工作区',
-      icon: Icons.spa_outlined,
-    ),
-    IndustryOption(
-      key: 'wealth',
-      label: '财富顾问',
-      workspaceLabel: '财富顾问工作区',
-      icon: Icons.account_balance_wallet_outlined,
+      quickTip: '记录客户偏好和预算范围，AI 自动整理并提醒匹配的房源方向',
     ),
   ];
 
@@ -86,9 +74,15 @@ class IndustrySettings {
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final savedKey = prefs.getString(_industryStorageKey);
-    _hasSelectedIndustry = savedKey != null;
+    final userIndustryKey = AuthSession.currentUser?.industryKey;
+    final userIndustrySelected =
+        AuthSession.currentUser?.industrySelected ?? false;
+    final effectiveKey = userIndustryKey?.isNotEmpty == true
+        ? userIndustryKey
+        : savedKey;
+    _hasSelectedIndustry = userIndustrySelected || savedKey != null;
     selected.value = IndustryOption.byKey(
-      savedKey ?? IndustryOption.generic.key,
+      effectiveKey ?? IndustryOption.generic.key,
     );
   }
 
@@ -102,5 +96,14 @@ class IndustrySettings {
     await prefs.setString(_industryStorageKey, industry.key);
     _hasSelectedIndustry = true;
     selected.value = industry;
+
+    if (AuthSession.isLoggedIn) {
+      final response = await apiService.updatePreferences(
+        industryKey: industry.key,
+      );
+      if (response.success && response.data != null) {
+        await AuthSession.updateUser(response.data!);
+      }
+    }
   }
 }

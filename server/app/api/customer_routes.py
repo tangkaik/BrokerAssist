@@ -88,14 +88,11 @@ async def get_customer_list(
     sort_order: Optional[str] = Query("desc", description="排序方向（asc, desc）"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    summary_status: Optional[str] = Query(None, description="画像状态过滤，逗号分隔，如 stale,failed"),
+    stale_contact: bool = Query(False, description="只返回超期未联系客户"),
     user_id: str = Depends(get_current_user_id),
     service: CustomerService = Depends(get_customer_service),
 ):
-    """
-    获取客户列表
-    
-    返回当前用户的所有未删除客户，支持按姓名模糊搜索和多种排序方式
-    """
     result = await service.get_customer_list(
         user_id=user_id,
         keyword=keyword,
@@ -103,8 +100,24 @@ async def get_customer_list(
         sort_order=sort_order,
         page=page,
         page_size=page_size,
+        summary_status=summary_status,
+        stale_contact=stale_contact,
     )
     
+    return success_response(data=result)
+
+
+@router.get(
+    "/summary-stats",
+    summary="客户摘要统计",
+    description="返回待更新画像数、超期未联系客户数、客户总数",
+    response_description="摘要统计数据",
+)
+async def get_summary_stats(
+    user_id: str = Depends(get_current_user_id),
+    service: CustomerService = Depends(get_customer_service),
+):
+    result = await service.get_summary_stats(user_id)
     return success_response(data=result)
 
 
@@ -286,7 +299,7 @@ async def generate_advice(
 @router.get(
     "/{customer_id}/advice",
     summary="获取已保存的跟进建议",
-    description="读取该客户最近一次生成并保存的跟进建议（JSON 文件存储）",
+    description="读取该客户最近一次生成并保存的跟进建议",
     response_description="已保存的建议",
 )
 async def get_saved_advice(

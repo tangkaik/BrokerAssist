@@ -13,11 +13,12 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 
-from sqlalchemy import select, and_, or_, func, desc
+from sqlalchemy import case, select, and_, or_, func, desc
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.customer import Customer
 from app.models.record import Record
+from app.models.user import User
 from app.schemas.customer import CustomerCreate, CustomerListItem, CustomerDetail, CustomerListResponse, SummaryGenerateResponse, CustomerChatResponse, AdviceGenerateResponse, CustomerUpdate
 from app.ai.kimi_client import KimiClient
 from app.core.prompts import (
@@ -49,6 +50,10 @@ class CustomerService:
         """
         self.session = session
         self.advice_store = CustomerAdviceStore()
+
+    async def _get_user_industry_key(self, user_id: str) -> str:
+        user = await self.session.get(User, user_id)
+        return getattr(user, "industry_key", None) or "generic"
     
     async def create_customer(
         self,
@@ -81,6 +86,7 @@ class CustomerService:
             name=data.name.strip(),
             phone=data.phone.strip() if data.phone else None,
             gender=data.gender.strip() if data.gender else None,
+            age=data.age,
             location_raw=location_normalized.get("location_raw"),
             location_city=location_normalized.get("location_city"),
             location_district=location_normalized.get("location_district"),
@@ -103,21 +109,15 @@ class CustomerService:
         sort_order: Optional[str] = "desc",
         page: int = 1,
         page_size: int = 20,
+        summary_status: Optional[str] = None,
+        stale_contact: bool = False,
     ) -> CustomerListResponse:
         """
         获取客户列表
-        
-        Args:
-            user_id: 当前用户ID
-            keyword: 搜索关键词（按姓名模糊匹配）
-            sort_by: 排序字段（name, updated_at, created_at）
-            sort_order: 排序方向（asc, desc）
-            
-        Returns:
-            客户列表响应
         """
-        from sqlalchemy import asc, desc as desc_order
-        
+        from sqlalchemy import asc, desc as desc_order, or_
+        from app.services.ai_service import STALE_CONTACT_MONTHS, subtract_months
+
         # 构建基础查询：未删除 + 属于当前用户
         query = select(Customer).where(
             and_(
@@ -125,11 +125,34 @@ class CustomerService:
                 Customer.deleted_at.is_(None)
             )
         )
-        
+
+        # 画像状态过滤
+        if summary_status:
+            statuses = [s.strip() for s in summary_status.split(",") if s.strip()]
+            if statuses:
+                query = query.where(Customer.summary_status.in_(statuses))
+
+        # 超期未联系过滤
+        if stale_contact:
+            threshold = subtract_months(datetime.now().date(), STALE_CONTACT_MONTHS)
+            threshold_dt = datetime(threshold.year, threshold.month, threshold.day)
+            latest_sub = (
+                select(Record.customer_id, func.max(Record.created_at).label("last_contact"))
+                .group_by(Record.customer_id)
+                .subquery()
+            )
+            query = query.outerjoin(
+                latest_sub, latest_sub.c.customer_id == Customer.id
+            ).where(
+                or_(
+                    latest_sub.c.last_contact.is_(None),
+                    latest_sub.c.last_contact < threshold_dt,
+                )
+            )
+
         # 如果有搜索关键词，添加姓名或标签模糊匹配
         if keyword and keyword.strip():
             keyword_clean = keyword.strip()
-            from sqlalchemy import or_
             # 使用参数化查询避免 SQL 注入（通过 ilike 操作符）
             search_pattern = f"%{keyword_clean}%"
             query = query.where(
@@ -166,6 +189,12 @@ class CustomerService:
                 id=c.id,
                 name=c.name,
                 phone=c.phone,
+                gender=c.gender,
+                age=c.age,
+                location_raw=c.location_raw,
+                location_city=c.location_city,
+                location_district=c.location_district,
+                location_subarea=c.location_subarea,
                 tags=c.tags,
                 updated_at=c.updated_at,
             )
@@ -213,6 +242,7 @@ class CustomerService:
             name=customer.name,
             phone=customer.phone,
             gender=customer.gender,
+            age=customer.age,
             location_raw=customer.location_raw,
             location_city=customer.location_city,
             location_district=customer.location_district,
@@ -287,6 +317,8 @@ class CustomerService:
             customer.phone = data.phone.strip() or None
         if data.gender is not None:
             customer.gender = data.gender.strip() or None
+        if data.age is not None:
+            customer.age = data.age
         if data.tags is not None:
             customer.tags = data.tags
         if data.location is not None:
@@ -305,6 +337,7 @@ class CustomerService:
             name=customer.name,
             phone=customer.phone,
             gender=customer.gender,
+            age=customer.age,
             location_raw=customer.location_raw,
             location_city=customer.location_city,
             location_district=customer.location_district,
@@ -397,14 +430,15 @@ class CustomerService:
         logger.info(f"[Summary] Customer {customer_id} status -> updating, records: {len(records)}")
         
         # 6. 调用 LLM 生成摘要
-        prompt = _customer_summary_prompt(records_text)
+        industry_key = await self._get_user_industry_key(user_id)
+        prompt = _customer_summary_prompt(records_text, industry_key=industry_key)
 
         try:
             kimi = KimiClient()
             try:
                 response = await kimi.chat_simple(
                     prompt=prompt,
-                    system_prompt=_customer_summary_system(),
+                    system_prompt=_customer_summary_system(industry_key=industry_key),
                 )
             finally:
                 await kimi.close()
@@ -478,14 +512,7 @@ class CustomerService:
         if not customer:
             raise HTTPException(status_code=404, detail="客户不存在或无权访问")
         
-        # 2. 校验摘要是否可用（必须已生成且状态为 ready）
-        if not customer.summary_text or customer.summary_status != "ready":
-            raise HTTPException(
-                status_code=400, 
-                detail="客户摘要尚未生成，请先生成摘要"
-            )
-        
-        # 3. 查询最近 3 条 records（按时间倒序）
+        # 2. 查询最近 3 条 records（按时间倒序）
         records_query = select(Record).where(
             Record.customer_id == customer_id
         ).order_by(
@@ -500,12 +527,26 @@ class CustomerService:
             f"[{r.created_at.strftime('%Y-%m-%d')}] {r.content}"
             for r in reversed(records)
         ])
+
+        summary_ready = bool(customer.summary_text and customer.summary_status == "ready")
+        if not summary_ready and not records_text:
+            return CustomerChatResponse(
+                customer_id=customer_id,
+                question=question,
+                answer="当前记录中没有足够信息回答此问题。请先添加拜访记录，或生成客户画像后再问。",
+            )
+
+        summary_text = customer.summary_text if summary_ready else (
+            "客户画像尚未生成。以下回答只能基于最近沟通记录，不代表完整客户画像。"
+        )
         
         # 5. 组装 Prompt
+        industry_key = await self._get_user_industry_key(user_id)
         prompt = _customer_chat_prompt(
-            customer_summary_text=customer.summary_text,
+            customer_summary_text=summary_text,
             recent_records_text=records_text,
             question=question,
+            industry_key=industry_key,
         )
 
         # 6. 调用 Kimi 生成回答
@@ -514,7 +555,7 @@ class CustomerService:
             try:
                 answer = await kimi.chat_simple(
                     prompt=prompt,
-                    system_prompt=_customer_chat_system(),
+                    system_prompt=_customer_chat_system(industry_key=industry_key),
                 )
             finally:
                 await kimi.close()
@@ -595,9 +636,11 @@ class CustomerService:
         ])
         
         # 5. 组装 Prompt
+        industry_key = await self._get_user_industry_key(user_id)
         prompt = _advice_prompt(
             customer_summary_text=customer.summary_text,
             recent_records_text=records_text,
+            industry_key=industry_key,
         )
 
         # 6. 调用 Kimi 生成建议
@@ -606,7 +649,7 @@ class CustomerService:
             try:
                 advice = await kimi.chat_simple(
                     prompt=prompt,
-                    system_prompt=_advice_system(),
+                    system_prompt=_advice_system(industry_key=industry_key),
                 )
             finally:
                 await kimi.close()
@@ -669,3 +712,60 @@ class CustomerService:
             advice_text=saved.get("advice_text", ""),
             updated_at=updated_at,
         )
+
+    async def get_summary_stats(self, user_id: str) -> dict:
+        """首页摘要统计：待更新画像数 + 超期未联系数 + 客户总数。"""
+        from datetime import date as date_type
+        from app.services.ai_service import STALE_CONTACT_MONTHS, subtract_months
+
+        threshold = subtract_months(datetime.now().date(), STALE_CONTACT_MONTHS)
+        threshold_dt = datetime(threshold.year, threshold.month, threshold.day)
+
+        # 总数 + 按状态统计
+        total_result = await self.session.execute(
+            select(
+                func.count(Customer.id),
+                func.sum(
+                    case(
+                        (Customer.summary_status.in_(["stale", "failed"]), 1),
+                        else_=0,
+                    )
+                ),
+            ).where(
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None),
+            )
+        )
+        total, stale_summary = total_result.one()
+        total = total or 0
+        stale_summary = stale_summary or 0
+
+        # 超期未联系：最近一条 record 时间早于阈值 或 无任何记录
+        latest_sub = (
+            select(
+                Record.customer_id,
+                func.max(Record.created_at).label("last_contact"),
+            )
+            .group_by(Record.customer_id)
+            .subquery()
+        )
+
+        stale_contact_result = await self.session.execute(
+            select(func.count(Customer.id))
+            .outerjoin(latest_sub, latest_sub.c.customer_id == Customer.id)
+            .where(
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None),
+                or_(
+                    latest_sub.c.last_contact.is_(None),
+                    latest_sub.c.last_contact < threshold_dt,
+                ),
+            )
+        )
+        stale_contact = stale_contact_result.scalar() or 0
+
+        return {
+            "customer_total": total,
+            "stale_summary_count": stale_summary,
+            "stale_contact_count": stale_contact,
+        }

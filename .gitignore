@@ -55,6 +55,7 @@ test_report_*.json
 # Local generated artifacts
 outputs/
 tmp/
+ccbot.json
 server/*.jsonl
 mobile/.flutter-plugins-dependencies*
 mobile/ios/Flutter/Generated*.xcconfig

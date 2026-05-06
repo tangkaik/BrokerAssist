@@ -8,11 +8,15 @@ class AiApi {
 
   Future<ApiResponse<Map<String, dynamic>>> aiChat({
     required String question,
+    List<Map<String, String>> recentMessages = const [],
   }) async {
     return _client.post(
       '/ai/chat',
       fromJsonT: (data) => data as Map<String, dynamic>,
-      body: {'question': question},
+      body: {
+        'question': question,
+        if (recentMessages.isNotEmpty) 'recent_messages': recentMessages,
+      },
     );
   }
 

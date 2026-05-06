@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from app.core.industry_profiles import get_industry_profile
+
 
 def _load_prompts() -> dict[str, Any]:
     """从 prompts.yaml 加载原始字典。"""
@@ -28,15 +30,30 @@ def get_prompts() -> dict[str, Any]:
 
 # ---- 客户摘要 ----
 
-def customer_summary(records_text: str) -> str:
+def _industry_format_args(industry_key: str | None) -> dict[str, str]:
+    profile = get_industry_profile(industry_key)
+    return {
+        "industry_label": profile.label,
+        "industry_role": profile.role_name,
+        "summary_focus_text": profile.summary_focus_text,
+        "missing_info_text": profile.missing_info_text,
+        "advice_focus_text": profile.advice_focus,
+        "forbidden_guidance_text": profile.forbidden_guidance_text,
+        "query_examples_text": profile.query_examples_text,
+    }
+
+
+def customer_summary(records_text: str, industry_key: str | None = None) -> str:
     """生成客户摘要的 prompt（模板）。"""
     tmpl = get_prompts()["customer_summary"]
-    return tmpl.format(records_text=records_text)
+    return tmpl.format(records_text=records_text, **_industry_format_args(industry_key))
 
 
-def customer_summary_system() -> str:
+def customer_summary_system(industry_key: str | None = None) -> str:
     """客户摘要的 system prompt。"""
-    return get_prompts()["customer_summary_system"]
+    return get_prompts()["customer_summary_system"].format(
+        **_industry_format_args(industry_key)
+    )
 
 
 # ---- 客户对话 ----
@@ -45,6 +62,7 @@ def customer_chat(
     customer_summary_text: str,
     recent_records_text: str,
     question: str,
+    industry_key: str | None = None,
 ) -> str:
     """客户对话的 prompt（模板）。"""
     tmpl = get_prompts()["customer_chat"]
@@ -52,12 +70,15 @@ def customer_chat(
         customer_summary_text=customer_summary_text,
         recent_records_text=recent_records_text,
         question=question,
+        **_industry_format_args(industry_key),
     )
 
 
-def customer_chat_system() -> str:
+def customer_chat_system(industry_key: str | None = None) -> str:
     """客户对话的 system prompt。"""
-    return get_prompts()["customer_chat_system"]
+    return get_prompts()["customer_chat_system"].format(
+        **_industry_format_args(industry_key)
+    )
 
 
 # ---- 拜访建议 ----
@@ -65,18 +86,22 @@ def customer_chat_system() -> str:
 def advice(
     customer_summary_text: str,
     recent_records_text: str,
+    industry_key: str | None = None,
 ) -> str:
     """拜访建议的 prompt（模板）。"""
     tmpl = get_prompts()["advice"]
     return tmpl.format(
         customer_summary_text=customer_summary_text,
         recent_records_text=recent_records_text,
+        **_industry_format_args(industry_key),
     )
 
 
-def advice_system() -> str:
+def advice_system(industry_key: str | None = None) -> str:
     """拜访建议的 system prompt。"""
-    return get_prompts()["advice_system"]
+    return get_prompts()["advice_system"].format(
+        **_industry_format_args(industry_key)
+    )
 
 
 # ---- 地点分类 ----
@@ -126,6 +151,8 @@ def global_qa(
     today_date: str,
     stale_date: str,
     customer_count: int,
+    conversation_context: str = "无",
+    industry_key: str | None = None,
 ) -> str:
     """全局 AI 问答的 prompt（模板）。"""
     tmpl = get_prompts()["global_qa"]
@@ -135,12 +162,29 @@ def global_qa(
         today_date=today_date,
         stale_date=stale_date,
         _customer_count=customer_count,
+        conversation_context=conversation_context,
+        **_industry_format_args(industry_key),
     )
 
 
-def global_qa_system() -> str:
+def global_qa_system(industry_key: str | None = None) -> str:
     """全局 AI 问答的 system prompt。"""
-    return get_prompts()["global_qa_system"]
+    return get_prompts()["global_qa_system"].format(
+        **_industry_format_args(industry_key)
+    )
+
+
+def customer_query_plan(question: str, industry_key: str | None = None) -> str:
+    """客户查询规划 prompt（模板）。"""
+    tmpl = get_prompts()["customer_query_plan"]
+    return tmpl.format(question=question, **_industry_format_args(industry_key))
+
+
+def customer_query_plan_system(industry_key: str | None = None) -> str:
+    """客户查询规划 system prompt。"""
+    return get_prompts()["customer_query_plan_system"].format(
+        **_industry_format_args(industry_key)
+    )
 
 
 # ---- 图片分析 ----

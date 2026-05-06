@@ -17,6 +17,8 @@ from app.core.config import settings
 from app.db.base import Base
 from app.models.user import User  # noqa: F401 - 导入以注册模型
 from app.models.customer import Customer  # noqa: F401 - 导入以注册模型
+from app.models.record_image import RecordImage  # noqa: F401
+from app.models.record_image_analysis import RecordImageAnalysis  # noqa: F401
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

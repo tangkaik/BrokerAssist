@@ -5,23 +5,409 @@ AI 服务
 让路由层只负责接参与返回响应。
 """
 import calendar
+import logging
+import re
 from datetime import date, datetime
 
 from sqlalchemy import and_, func, or_, select
 
 from app.ai.kimi_client import KimiClient
 from app.core.prompts import (
+    customer_query_plan as _customer_query_plan_prompt,
+    customer_query_plan_system as _customer_query_plan_system,
     global_qa as _global_qa_prompt,
     global_qa_system as _global_qa_system,
 )
 from app.db.session import async_session_factory
 from app.models.customer import Customer
 from app.models.record import Record
+from app.models.user import User
 from app.services.vision_service import analyze_image_with_qwen
 
 STALE_CONTACT_MONTHS = 2
 FOLLOW_UP_LOOKBACK_MONTHS = 1
 PRIORITY_CUSTOMER_LIMIT = 3
+CUSTOMER_QUERY_LIMIT = 50
+GLOBAL_FALLBACK_CUSTOMER_LIMIT = 50
+GLOBAL_RECENT_MESSAGE_LIMIT = 16
+SUPPORTED_QUERY_ACTIONS = {"list", "count", "none"}
+SUPPORTED_SORTS = {"last_contact_desc", "last_contact_asc", None}
+SUPPORTED_LOCATION_SCOPES = {"customer_address", "record_location", "any"}
+logger = logging.getLogger(__name__)
+
+
+def looks_like_customer_query(question: str) -> bool:
+    normalized = question.strip()
+    if not normalized:
+        return False
+
+    normalized_no_space = re.sub(r"\s+", "", normalized)
+    casual_phrases = {
+        "你好", "您好", "早上好", "下午好", "晚上好",
+        "谢谢", "多谢", "辛苦了", "你是谁",
+    }
+    if normalized_no_space in casual_phrases:
+        return False
+
+    query_cues = [
+        "客户", "名单", "列表", "列出", "哪些", "有哪些", "有多少", "多少",
+        "几个", "几位", "住在", "居住", "地址", "附近", "女", "男", "岁",
+        "未联系", "没联系", "跟进", "优先", "高净值", "预算", "保险", "医疗险",
+        "重疾险", "年金险",
+    ]
+    if any(cue in normalized for cue in query_cues):
+        return True
+
+    return bool(re.search(r"[\u4e00-\u9fff].*(区|县|市|镇|街道|小区|大厦|园|路)", normalized))
+
+
+def normalize_gender(value: object) -> str | None:
+    text = str(value or "").strip().lower()
+    if text in {"female", "女", "女性", "女士", "女客户"}:
+        return "female"
+    if text in {"male", "男", "男性", "男士", "男客户"}:
+        return "male"
+    return None
+
+
+def gender_matches(customer_gender: object, planned_gender: str | None) -> bool:
+    if not planned_gender:
+        return True
+    return normalize_gender(customer_gender) == planned_gender
+
+
+def clean_string(value: object, max_len: int = 80) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    return text[:max_len]
+
+
+def clean_string_list(value: object, max_items: int = 10, max_len: int = 40) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    cleaned = []
+    for item in value[:max_items]:
+        text = clean_string(item, max_len=max_len)
+        if text:
+            cleaned.append(text)
+    return cleaned
+
+
+def clean_int(value: object, minimum: int | None = None, maximum: int | None = None) -> int | None:
+    if value in {None, ""}:
+        return None
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        return None
+    if minimum is not None and number < minimum:
+        return None
+    if maximum is not None and number > maximum:
+        return None
+    return number
+
+
+def normalize_location_scope(value: object) -> str:
+    text = str(value or "").strip()
+    if text in SUPPORTED_LOCATION_SCOPES:
+        return text
+    return "customer_address"
+
+
+def validate_customer_query_plan(raw_plan: dict | None) -> dict | None:
+    if not isinstance(raw_plan, dict):
+        return None
+
+    action = raw_plan.get("action")
+    if action not in SUPPORTED_QUERY_ACTIONS:
+        return None
+    if action == "none":
+        return {"action": "none"}
+    if raw_plan.get("entity") not in {None, "customers"}:
+        return None
+
+    raw_filters = raw_plan.get("filters")
+    filters = raw_filters if isinstance(raw_filters, dict) else {}
+
+    raw_location = filters.get("location")
+    location = raw_location if isinstance(raw_location, dict) else {}
+
+    raw_age = filters.get("age")
+    age = raw_age if isinstance(raw_age, dict) else {}
+    age_min = clean_int(age.get("min"), minimum=0, maximum=120)
+    age_max = clean_int(age.get("max"), minimum=0, maximum=120)
+    if age_min is not None and age_max is not None and age_min > age_max:
+        age_min, age_max = age_max, age_min
+
+    sort = raw_plan.get("sort")
+    if sort not in SUPPORTED_SORTS:
+        sort = None
+
+    return {
+        "action": action,
+        "entity": "customers",
+        "filters": {
+            "gender": normalize_gender(filters.get("gender")),
+            "location": {
+                "raw": clean_string(location.get("raw")),
+                "city": clean_string(location.get("city"), max_len=40),
+                "district": clean_string(location.get("district"), max_len=40),
+                "subarea": clean_string(location.get("subarea"), max_len=60),
+            },
+            "location_scope": normalize_location_scope(filters.get("location_scope")),
+            "age": {"min": age_min, "max": age_max},
+            "tags": clean_string_list(filters.get("tags")),
+            "keywords": clean_string_list(filters.get("keywords")),
+            "stale_contact_months": clean_int(
+                filters.get("stale_contact_months"),
+                minimum=1,
+                maximum=36,
+            ),
+        },
+        "sort": sort,
+        "limit": clean_int(raw_plan.get("limit"), minimum=1, maximum=100) or CUSTOMER_QUERY_LIMIT,
+    }
+
+
+def extract_age_from_customer(customer: dict) -> int | None:
+    formal_age = clean_int(customer.get("age"), minimum=0, maximum=120)
+    if formal_age is not None:
+        return formal_age
+
+    text_parts = []
+    text_parts.extend(customer.get("tags") or [])
+    text_parts.append(customer.get("summary", ""))
+    text_parts.append(customer.get("recent_records", ""))
+    combined = " ".join(str(part) for part in text_parts if part)
+    match = re.search(r"(?<!\d)(\d{1,3})\s*岁", combined)
+    if not match:
+        return None
+    age = int(match.group(1))
+    if age < 0 or age > 120:
+        return None
+    return age
+
+
+def age_matches(customer: dict, age_filter: dict) -> bool:
+    age_min = age_filter.get("min")
+    age_max = age_filter.get("max")
+    if age_min is None and age_max is None:
+        return True
+    age = extract_age_from_customer(customer)
+    if age is None:
+        return False
+    if age_min is not None and age < age_min:
+        return False
+    if age_max is not None and age > age_max:
+        return False
+    return True
+
+
+def text_matches(customer: dict, values: list[str]) -> bool:
+    if not values:
+        return True
+    combined = " ".join(
+        [
+            customer.get("name", ""),
+            customer.get("phone", ""),
+            customer.get("location_raw") or "",
+            customer.get("location_city") or "",
+            customer.get("location_district") or "",
+            customer.get("location_subarea") or "",
+            " ".join(customer.get("tags") or []),
+            customer.get("summary", ""),
+            customer.get("recent_records", ""),
+        ]
+    )
+    return all(value in combined for value in values)
+
+
+def tags_match(customer: dict, tags: list[str]) -> bool:
+    if not tags:
+        return True
+    customer_tags = customer.get("tags") or []
+    combined = " ".join(customer_tags + [customer.get("summary", ""), customer.get("recent_records", "")])
+    return all(any(tag == item or tag in item for item in customer_tags) or tag in combined for tag in tags)
+
+
+def location_matches(customer: dict, location_filter: dict, location_scope: str = "customer_address") -> bool:
+    raw_values = [
+        location_filter.get("city"),
+        location_filter.get("district"),
+        location_filter.get("subarea"),
+        location_filter.get("raw"),
+    ]
+    if not any(raw_values):
+        return True
+
+    target = {
+        "city": location_filter.get("city") or "",
+        "district": location_filter.get("district") or "",
+        "subarea": location_filter.get("subarea") or "",
+    }
+    scope = normalize_location_scope(location_scope)
+
+    if target["city"] or target["district"] or target["subarea"]:
+        customer_location = {
+            "city": customer.get("location_city") or "",
+            "district": customer.get("location_district") or "",
+            "subarea": customer.get("location_subarea") or "",
+        }
+        if scope in {"customer_address", "any"} and is_location_match(target, customer_location):
+            return True
+        if scope in {"record_location", "any"}:
+            for location in customer.get("structured_locations", []):
+                if is_location_match(target, location):
+                    return True
+
+    raw = normalize_place_name(location_filter.get("raw") or "")
+    if not raw:
+        return False
+
+    searchable_values = []
+    if scope in {"customer_address", "any"}:
+        searchable_values.extend([
+            customer.get("location_raw") or "",
+            customer.get("location_city") or "",
+            customer.get("location_district") or "",
+            customer.get("location_subarea") or "",
+        ])
+    if scope in {"record_location", "any"}:
+        for location in customer.get("structured_locations", []):
+            searchable_values.extend([
+                location.get("raw") or "",
+                location.get("city") or "",
+                location.get("district") or "",
+                location.get("subarea") or "",
+            ])
+    return any(raw and raw in normalize_place_name(value) for value in searchable_values)
+
+
+def stale_contact_matches(customer: dict, months: int | None) -> bool:
+    if not months:
+        return True
+    last_contact = customer.get("last_contact")
+    if not last_contact or last_contact == "从未联系":
+        return True
+    try:
+        last_contact_date = datetime.strptime(last_contact, "%Y-%m-%d").date()
+    except ValueError:
+        return False
+    return last_contact_date <= subtract_months(datetime.now().date(), months)
+
+
+def describe_customer_query(filters: dict) -> str:
+    parts = []
+    location = filters.get("location") or {}
+    location_text = location.get("raw") or location.get("subarea") or location.get("district") or location.get("city")
+    location_scope = filters.get("location_scope")
+    gender = filters.get("gender")
+    if gender == "female":
+        parts.append("女性")
+    elif gender == "male":
+        parts.append("男性")
+    age_filter = filters.get("age") or {}
+    age_min = age_filter.get("min")
+    age_max = age_filter.get("max")
+    if age_min is not None and age_max is not None:
+        parts.append(f"{age_min}-{age_max}岁")
+    elif age_min is not None:
+        parts.append(f"{age_min}岁以上")
+    elif age_max is not None:
+        parts.append(f"{age_max}岁以下")
+    parts.extend(filters.get("tags") or [])
+    months = filters.get("stale_contact_months")
+    if months:
+        parts.append(f"{months}个月未联系")
+
+    condition_text = "".join(parts)
+    if location_text and location_scope == "record_location":
+        prefix = f"曾在{location_text}拜访/记录过的"
+    elif location_text and location_scope == "any":
+        prefix = f"与{location_text}有关的"
+    elif location_text:
+        prefix = str(location_text)
+    else:
+        prefix = ""
+
+    label = f"{prefix}{condition_text}客户"
+    return label if label != "客户" else "符合条件的客户"
+
+
+def normalize_customer_links_and_tail(answer: str) -> str:
+    """兜底修正全局问答里的客户链接和无效不足信息尾句。"""
+    if not answer:
+        return answer
+
+    normalized = re.sub(
+        r"(?<!\[)([\u4e00-\u9fffA-Za-z][\u4e00-\u9fffA-Za-z·]{1,20})\|([0-9a-fA-F-]{36})",
+        r"[\1|\2]",
+        answer.strip(),
+    )
+
+    has_customer_link = bool(re.search(r"\[[^\]\n|]{1,24}\|[0-9a-fA-F-]{36}\]", normalized))
+    if not has_customer_link:
+        return normalized
+
+    lines = normalized.splitlines()
+    while lines and not lines[-1].strip():
+        lines.pop()
+    if not lines:
+        return normalized
+
+    last_blank_index = -1
+    for index in range(len(lines) - 1, -1, -1):
+        if not lines[index].strip():
+            last_blank_index = index
+            break
+
+    paragraph_start = last_blank_index + 1
+    last_paragraph = "\n".join(lines[paragraph_start:]).strip()
+    if last_paragraph.startswith("当前记录中") and ("没有" in last_paragraph or "不足" in last_paragraph):
+        return "\n".join(lines[:paragraph_start]).rstrip()
+
+    return normalized
+
+
+def normalize_recent_messages(messages: list[dict] | None) -> list[dict]:
+    if not messages:
+        return []
+
+    normalized = []
+    for item in messages[-GLOBAL_RECENT_MESSAGE_LIMIT:]:
+        if not isinstance(item, dict):
+            continue
+        role = str(item.get("role") or "").strip()
+        content = str(item.get("content") or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            continue
+        normalized.append({"role": role, "content": content[:2000]})
+    return normalized
+
+
+def format_conversation_context(messages: list[dict]) -> str:
+    if not messages:
+        return "无"
+    labels = {"user": "用户", "assistant": "AI"}
+    return "\n".join(
+        f"{labels.get(message['role'], message['role'])}: {message['content']}"
+        for message in messages
+    )
+
+
+def trim_global_fallback_contexts(customer_contexts: list[dict]) -> tuple[list[dict], int]:
+    if len(customer_contexts) <= GLOBAL_FALLBACK_CUSTOMER_LIMIT:
+        return customer_contexts, 0
+
+    def sort_key(customer: dict) -> str:
+        last_contact = customer.get("last_contact")
+        return last_contact if last_contact and last_contact != "从未联系" else "0000-00-00"
+
+    sorted_contexts = sorted(customer_contexts, key=sort_key, reverse=True)
+    return sorted_contexts[:GLOBAL_FALLBACK_CUSTOMER_LIMIT], len(customer_contexts) - GLOBAL_FALLBACK_CUSTOMER_LIMIT
 
 
 def is_list_all_customers_question(question: str) -> bool:
@@ -443,6 +829,11 @@ async def build_area_customer_answer_with_llm(question: str, customer_contexts: 
 class AIService:
     """AI 相关业务服务。"""
 
+    async def _get_user_industry_key(self, user_id: str) -> str:
+        async with async_session_factory() as session:
+            user = await session.get(User, user_id)
+            return getattr(user, "industry_key", None) or "generic"
+
     async def ask_image_question(
         self,
         question: str,
@@ -507,6 +898,8 @@ class AIService:
                     "id": customer.id,
                     "name": customer.name,
                     "phone": customer.phone or "未设置",
+                    "gender": customer.gender,
+                    "age": customer.age,
                     "location_raw": customer.location_raw,
                     "location_city": customer.location_city,
                     "location_district": customer.location_district,
@@ -532,17 +925,155 @@ class AIService:
 
             return customer_contexts
 
-    async def ask_global_question(self, user_id: str, question: str) -> str:
+    async def _plan_customer_query(self, question: str, industry_key: str) -> dict | None:
+        if not looks_like_customer_query(question):
+            return None
+
+        try:
+            kimi = KimiClient()
+            try:
+                raw_answer = await kimi.chat_simple(
+                    prompt=_customer_query_plan_prompt(
+                        question=question,
+                        industry_key=industry_key,
+                    ),
+                    system_prompt=_customer_query_plan_system(industry_key=industry_key),
+                )
+            finally:
+                await kimi.close()
+        except Exception:
+            logger.exception("[AI] Customer query planner failed")
+            return None
+
+        plan = validate_customer_query_plan(parse_json_object(raw_answer))
+        if not plan or plan.get("action") == "none":
+            return None
+
+        location = plan["filters"]["location"]
+        if location.get("raw") and not (
+            location.get("city") or location.get("district") or location.get("subarea")
+        ):
+            try:
+                from app.services.location_normalizer import LocationNormalizer
+
+                normalized = await LocationNormalizer().normalize(location["raw"])
+                location["city"] = location.get("city") or normalized.get("location_city")
+                location["district"] = location.get("district") or normalized.get("location_district")
+                location["subarea"] = location.get("subarea") or normalized.get("location_subarea")
+            except Exception:
+                logger.exception("[AI] Location normalization failed for query plan")
+
+        return plan
+
+    async def _execute_customer_query_plan(self, user_id: str, plan: dict) -> str:
         customer_contexts = await self._build_customer_contexts(user_id)
+        filters = plan.get("filters") or {}
 
-        if is_list_all_customers_question(question):
-            return build_list_all_customers_answer(customer_contexts)
+        matches = []
+        for customer in customer_contexts:
+            if not gender_matches(customer.get("gender"), filters.get("gender")):
+                continue
+            if not age_matches(customer, filters.get("age") or {}):
+                continue
+            if not location_matches(
+                customer,
+                filters.get("location") or {},
+                filters.get("location_scope") or "customer_address",
+            ):
+                continue
+            if not tags_match(customer, filters.get("tags") or []):
+                continue
+            if not text_matches(customer, filters.get("keywords") or []):
+                continue
+            if not stale_contact_matches(customer, filters.get("stale_contact_months")):
+                continue
+            matches.append(customer)
 
-        if is_stale_contact_question(question):
-            return build_stale_contact_answer(customer_contexts)
+        sort = plan.get("sort")
+        if sort == "last_contact_asc":
+            matches.sort(key=lambda item: item["last_contact"] if item["last_contact"] != "从未联系" else "0000-00-00")
+        else:
+            matches.sort(
+                key=lambda item: item["last_contact"] if item["last_contact"] != "从未联系" else "0000-00-00",
+                reverse=True,
+            )
 
-        if is_priority_customer_question(question):
-            return build_priority_customers_answer(customer_contexts)
+        label = describe_customer_query(filters)
+        if plan.get("action") == "count":
+            lines = [f"{label}共有 {len(matches)} 位。"]
+            if matches:
+                lines.append("")
+                for index, customer in enumerate(matches[: plan.get("limit", CUSTOMER_QUERY_LIMIT)], start=1):
+                    lines.append(self._format_customer_query_item(index, customer))
+            return "\n".join(lines)
+
+        if not matches:
+            return f"当前没有找到{label}。"
+
+        lines = [f"以下是{label}：", ""]
+        for index, customer in enumerate(matches[: plan.get("limit", CUSTOMER_QUERY_LIMIT)], start=1):
+            lines.append(self._format_customer_query_item(index, customer))
+        if len(matches) > plan.get("limit", CUSTOMER_QUERY_LIMIT):
+            lines.append(f"其余 {len(matches) - plan.get('limit', CUSTOMER_QUERY_LIMIT)} 位已省略。")
+        return "\n".join(lines)
+
+    def _format_customer_query_item(self, index: int, customer: dict) -> str:
+        details = []
+        age = extract_age_from_customer(customer)
+        if age is not None:
+            details.append(f"{age}岁")
+        gender = normalize_gender(customer.get("gender"))
+        if gender == "female":
+            details.append("女")
+        elif gender == "male":
+            details.append("男")
+        location = "/".join(
+            value
+            for value in [
+                customer.get("location_city"),
+                customer.get("location_district"),
+                customer.get("location_subarea"),
+            ]
+            if value
+        )
+        if location:
+            details.append(location)
+        tags = [tag for tag in (customer.get("tags") or []) if not re.fullmatch(r"\d{1,3}岁", str(tag))]
+        if tags:
+            details.append("、".join(tags[:3]))
+
+        detail_text = f"：{'，'.join(details)}" if details else ""
+        return f"{index}. [{customer['name']}|{customer['id']}]{detail_text}"
+
+    async def ask_global_question(
+        self,
+        user_id: str,
+        question: str,
+        recent_messages: list[dict] | None = None,
+    ) -> str:
+        industry_key = await self._get_user_industry_key(user_id)
+        needs_fast_context = (
+            is_list_all_customers_question(question) or
+            is_stale_contact_question(question) or
+            is_priority_customer_question(question)
+        )
+        customer_contexts = None
+
+        if needs_fast_context:
+            customer_contexts = await self._build_customer_contexts(user_id)
+
+            if is_list_all_customers_question(question):
+                return build_list_all_customers_answer(customer_contexts)
+
+            if is_stale_contact_question(question):
+                return build_stale_contact_answer(customer_contexts)
+
+            if is_priority_customer_question(question):
+                return build_priority_customers_answer(customer_contexts)
+
+        planned_query = await self._plan_customer_query(question, industry_key)
+        if planned_query:
+            return await self._execute_customer_query_plan(user_id, planned_query)
 
         # 地区查询：直接 SQL 精准匹配，不过 LLM 猜
         if looks_like_area_question(question):
@@ -552,16 +1083,29 @@ class AIService:
                 logger.exception(f"[AI] 地区查询异常: {e}")
                 return "服务暂时不可用，请稍后再试。"
 
+        if customer_contexts is None:
+            customer_contexts = await self._build_customer_contexts(user_id)
+
+        prompt_contexts, omitted_count = trim_global_fallback_contexts(customer_contexts)
+        conversation_context = format_conversation_context(
+            normalize_recent_messages(recent_messages),
+        )
         context_text = "\n\n".join([
             f"客户{i+1}: {c['name']} [ID:{c['id']}] (电话: {c['phone']})\n"
             f"- 标签: {', '.join(c['tags']) if c['tags'] else '无'}\n"
+            f"- 年龄: {c['age'] if c.get('age') is not None else '未知'}\n"
             f"- 摘要: {c['summary'][:100]}...\n"
             f"- 最近记录: {c['recent_records'][:150]}...\n"
             f"- 最后联系: {c['last_contact']}\n"
             f"- 记录数: {c['records_count']}\n"
             f"- 地址信息: {self._format_locations(c['structured_locations'])}"
-            for i, c in enumerate(customer_contexts)
+            for i, c in enumerate(prompt_contexts)
         ])
+        if omitted_count:
+            context_text += (
+                f"\n\n【上下文裁剪说明】为控制 token，本次兜底问答只提供最近活跃的 "
+                f"{len(prompt_contexts)} 位客户，另有 {omitted_count} 位未放入 prompt。"
+            )
 
         today = datetime.now().date()
         stale_date = subtract_months(today, STALE_CONTACT_MONTHS)
@@ -571,6 +1115,8 @@ class AIService:
             today_date=today.isoformat(),
             stale_date=stale_date.isoformat(),
             customer_count=len(customer_contexts),
+            conversation_context=conversation_context,
+            industry_key=industry_key,
         )
 
         try:
@@ -578,7 +1124,7 @@ class AIService:
             try:
                 answer = await kimi.chat_simple(
                     prompt=prompt,
-                    system_prompt=_global_qa_system(),
+                    system_prompt=_global_qa_system(industry_key=industry_key),
                 )
             finally:
                 await kimi.close()
@@ -589,7 +1135,7 @@ class AIService:
         except Exception:
             answer = "服务暂时不可用，请稍后再试。"
 
-        return answer.strip()
+        return normalize_customer_links_and_tail(answer)
 
     async def _answer_area_question(self, question: str, user_id: str) -> str:
         """根据客户地址字段做地区精准查询。"""

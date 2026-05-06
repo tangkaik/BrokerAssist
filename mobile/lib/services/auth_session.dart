@@ -44,6 +44,13 @@ class AuthSession {
     authVersion.value++;
   }
 
+  static Future<void> updateUser(AuthUser user) async {
+    _currentUser = user;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_userKey, jsonEncode(user.toJson()));
+    authVersion.value++;
+  }
+
   static Future<void> clear() async {
     _token = '';
     _currentUser = null;

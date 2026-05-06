@@ -18,6 +18,7 @@ class CustomerBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="客户姓名")
     phone: Optional[str] = Field(None, max_length=50, description="客户电话")
     gender: Optional[str] = Field(None, max_length=20, description="客户性别")
+    age: Optional[int] = Field(None, ge=0, le=120, description="客户年龄")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
 
 
@@ -34,7 +35,8 @@ class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="客户姓名")
     phone: Optional[str] = Field(None, max_length=50, description="客户电话")
     gender: Optional[str] = Field(None, max_length=20, description="客户性别")
-    location: Optional[str] = Field(None, max_length=255, description="客户地址")
+    age: Optional[int] = Field(None, ge=0, le=120, description="客户年龄")
+    location: Optional[str] = Field(None, max_length=255, description="客户主地址")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
 
     @field_validator("tags")
@@ -62,19 +64,22 @@ class CustomerIdResponse(BaseModel):
 class CustomerListItem(BaseModel):
     """
     客户列表项
-    
+
     用于 GET /api/v1/customers 列表返回
     """
     id: str = Field(..., description="客户ID")
     name: str = Field(..., description="客户姓名")
     phone: Optional[str] = Field(None, description="客户电话")
+    gender: Optional[str] = Field(None, description="客户性别")
+    age: Optional[int] = Field(None, description="客户年龄")
     location_raw: Optional[str] = Field(None, description="原始地址")
     location_city: Optional[str] = Field(None, description="城市")
     location_district: Optional[str] = Field(None, description="区")
     location_subarea: Optional[str] = Field(None, description="片区")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
+    summary_status: str = Field("stale", description="画像状态")
     updated_at: datetime = Field(..., description="更新时间")
-    
+
     model_config = {"from_attributes": True}
 
 
@@ -88,6 +93,7 @@ class CustomerDetail(BaseModel):
     name: str = Field(..., description="客户姓名")
     phone: Optional[str] = Field(None, description="客户电话")
     gender: Optional[str] = Field(None, description="客户性别")
+    age: Optional[int] = Field(None, description="客户年龄")
     location_raw: Optional[str] = Field(None, description="原始地址")
     location_city: Optional[str] = Field(None, description="城市")
     location_district: Optional[str] = Field(None, description="区")
@@ -124,6 +130,7 @@ class CustomerUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=50)
     gender: Optional[str] = Field(None, max_length=20)
+    age: Optional[int] = Field(None, ge=0, le=120)
     location: Optional[str] = Field(None, max_length=255)
     tags: Optional[List[str]] = Field(None)
 

@@ -47,6 +47,12 @@ class ApiService {
     return _auth.me();
   }
 
+  Future<ApiResponse<AuthUser>> updatePreferences({
+    required String industryKey,
+  }) async {
+    return _auth.updatePreferences(industryKey: industryKey);
+  }
+
   Future<ApiResponse<PaginatedData<Customer>>> getCustomers({
     int page = 1,
     int pageSize = 20,
@@ -94,14 +100,18 @@ class ApiService {
 
   Future<ApiResponse<Map<String, dynamic>>> createCustomer({
     required String name,
+    String? phone,
     String? gender,
     int? age,
+    String? location,
     List<String>? tags,
   }) async {
     return _customers.createCustomer(
       name: name,
+      phone: phone,
       gender: gender,
       age: age,
+      location: location,
       tags: tags,
     );
   }
@@ -118,6 +128,8 @@ class ApiService {
     int pageSize = 20,
     String sortBy = 'updated_at',
     String sortOrder = 'desc',
+    String? summaryStatus,
+    bool staleContact = false,
   }) async {
     return _customers.searchCustomers(
       keyword: keyword,
@@ -125,6 +137,8 @@ class ApiService {
       pageSize: pageSize,
       sortBy: sortBy,
       sortOrder: sortOrder,
+      summaryStatus: summaryStatus,
+      staleContact: staleContact,
     );
   }
 
@@ -176,6 +190,16 @@ class ApiService {
     return _customers.generateAdvice(customerId);
   }
 
+  Future<ApiResponse<Map<String, dynamic>>> getSavedAdvice(
+    String customerId,
+  ) async {
+    return _customers.getSavedAdvice(customerId);
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> getSummaryStats() async {
+    return _customers.getSummaryStats();
+  }
+
   Future<ApiResponse<Map<String, dynamic>>> deleteCustomer(
     String customerId,
   ) async {
@@ -187,6 +211,7 @@ class ApiService {
     String? name,
     String? phone,
     String? gender,
+    int? age,
     String? location,
     List<String>? tags,
   }) async {
@@ -195,6 +220,7 @@ class ApiService {
       name: name,
       phone: phone,
       gender: gender,
+      age: age,
       location: location,
       tags: tags,
     );
@@ -243,8 +269,9 @@ class ApiService {
 
   Future<ApiResponse<Map<String, dynamic>>> aiChat({
     required String question,
+    List<Map<String, String>> recentMessages = const [],
   }) async {
-    return _ai.aiChat(question: question);
+    return _ai.aiChat(question: question, recentMessages: recentMessages);
   }
 
   Future<ApiResponse<Map<String, dynamic>>> aiChatWithImage({
