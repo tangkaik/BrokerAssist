@@ -17,6 +17,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _ageController = TextEditingController();
+  final _birthdayController = TextEditingController();
   final _locationController = TextEditingController();
   String? _selectedGender;
   final List<String> _tags = [];
@@ -51,6 +52,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
     _nameController.dispose();
     _phoneController.dispose();
     _ageController.dispose();
+    _birthdayController.dispose();
     _locationController.dispose();
     _tagController.dispose();
     super.dispose();
@@ -65,6 +67,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
         _nameController.text = customer.name;
         _phoneController.text = customer.phone ?? '';
         _ageController.text = customer.age?.toString() ?? '';
+        _birthdayController.text = customer.birthday ?? '';
         _locationController.text = customer.locationRaw ?? '';
         _selectedGender = _normalizeGender(customer.gender);
         _tags.addAll(customer.tags);
@@ -118,6 +121,9 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
           : null,
       gender: _selectedGender,
       age: int.tryParse(_ageController.text.trim()),
+      birthday: _birthdayController.text.trim().isNotEmpty
+          ? _birthdayController.text.trim()
+          : null,
       location: _locationController.text.trim().isNotEmpty
           ? _locationController.text.trim()
           : null,
@@ -198,6 +204,18 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
                               }
                               return null;
                             },
+                          ),
+                          const SizedBox(height: 16),
+                          TextFormField(
+                            controller: _birthdayController,
+                            keyboardType: TextInputType.datetime,
+                            decoration: InputDecoration(
+                              labelText: '生日',
+                              hintText: 'YYYY-MM-DD',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
                           ),
                           const SizedBox(height: 16),
                           TextFormField(

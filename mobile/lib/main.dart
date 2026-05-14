@@ -112,6 +112,8 @@ class MainNavigationScreen extends StatefulWidget {
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
   int _currentIndex = 0;
   final List<int> _tabHistory = [];
+  final List<int> _tabDepths = [1, 1, 1, 1];
+  late final List<_TabStackObserver> _tabObservers;
 
   final _keys = [
     GlobalKey<NavigatorState>(),
@@ -127,9 +129,24 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     AccountPage(onLogout: widget.onLogout),
   ];
 
+  @override
+  void initState() {
+    super.initState();
+    _tabObservers = List.generate(
+      4,
+      (index) => _TabStackObserver(
+        onDepthChanged: (depth) {
+          if (!mounted || _tabDepths[index] == depth) return;
+          setState(() => _tabDepths[index] = depth);
+        },
+      ),
+    );
+  }
+
   Widget _buildTab(int index) {
     return Navigator(
       key: _keys[index],
+      observers: [_tabObservers[index]],
       onGenerateRoute: (settings) {
         return MaterialPageRoute(
           builder: (_) => _tabPages[index],
@@ -170,32 +187,66 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           index: _currentIndex,
           children: List.generate(4, _buildTab),
         ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _currentIndex,
-          onDestinationSelected: (index) {
-            // 如果点击当前 Tab，pop 到根页面
-            if (index == _currentIndex) {
-              _keys[index].currentState?.popUntil((route) => route.isFirst);
-              return;
-            }
+        bottomNavigationBar: _tabDepths[_currentIndex] > 1
+            ? null
+            : NavigationBar(
+                selectedIndex: _currentIndex,
+                onDestinationSelected: (index) {
+                  // 如果点击当前 Tab，pop 到根页面
+                  if (index == _currentIndex) {
+                    _keys[index].currentState?.popUntil(
+                      (route) => route.isFirst,
+                    );
+                    return;
+                  }
 
-            setState(() {
-              _tabHistory.remove(index);
-              _tabHistory.add(_currentIndex);
-              _currentIndex = index;
-            });
-          },
-          destinations: navItems
-              .map(
-                (item) => NavigationDestination(
-                  icon: Icon(item.$1),
-                  selectedIcon: Icon(item.$2),
-                  label: item.$3,
-                ),
-              )
-              .toList(),
-        ),
+                  setState(() {
+                    _tabHistory.remove(index);
+                    _tabHistory.add(_currentIndex);
+                    _currentIndex = index;
+                  });
+                },
+                destinations: navItems
+                    .map(
+                      (item) => NavigationDestination(
+                        icon: Icon(item.$1),
+                        selectedIcon: Icon(item.$2),
+                        label: item.$3,
+                      ),
+                    )
+                    .toList(),
+              ),
       ),
     );
+  }
+}
+
+class _TabStackObserver extends NavigatorObserver {
+  _TabStackObserver({required this.onDepthChanged});
+
+  final ValueChanged<int> onDepthChanged;
+  int _depth = 1;
+
+  @override
+  void didPush(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPush(route, previousRoute);
+    if (previousRoute == null) return;
+    _depth += 1;
+    onDepthChanged(_depth);
+  }
+
+  @override
+  void didPop(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didPop(route, previousRoute);
+    if (previousRoute == null) return;
+    _depth = (_depth - 1).clamp(1, 99);
+    onDepthChanged(_depth);
+  }
+
+  @override
+  void didRemove(Route<dynamic> route, Route<dynamic>? previousRoute) {
+    super.didRemove(route, previousRoute);
+    _depth = (_depth - 1).clamp(1, 99);
+    onDepthChanged(_depth);
   }
 }

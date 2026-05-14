@@ -22,6 +22,9 @@
                   <path d="M19.14 12.94a7.55 7.55 0 0 0 .05-.94a7.55 7.55 0 0 0-.05-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.13 7.13 0 0 0-1.63-.94l-.36-2.54a.5.5 0 0 0-.49-.42h-3.84a.5.5 0 0 0-.49.42l-.36 2.54c-.58.22-1.12.53-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.84a.5.5 0 0 0 .12.64l2.03 1.58a7.55 7.55 0 0 0-.05.94c0 .32.02.63.05.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32a.5.5 0 0 0 .6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54a.5.5 0 0 0 .49.42h3.84a.5.5 0 0 0 .49-.42l.36-2.54c.58-.22 1.12-.53 1.63-.94l2.39.96a.5.5 0 0 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7" />
                 </svg>
               </button>
+              <input id="import-customers-file" class="hidden-file-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <button id="import-customers" type="button" class="button button-secondary">导入客户 Excel</button>
+              <button id="export-customers" type="button" class="button button-secondary">导出客户 Excel</button>
               <button id="logout-button" type="button" class="button button-ghost">退出登录</button>
             </div>
           </div>
@@ -239,11 +242,6 @@
           <div id="global-chat-log" class="chat-log"></div>
 
           <div id="global-suggestions" class="suggestions suggestions-bottom">
-            <button class="suggestion-chip" data-question="请列出当前所有客户。">请列出当前所有客户。</button>
-            <button class="suggestion-chip" data-question="哪些客户已经两个月没有联系了？">哪些客户已经两个月没有联系了？</button>
-            <button class="suggestion-chip" data-question="请推荐当前优先级最高的三位客户。">请推荐当前优先级最高的三位客户。</button>
-            <button class="suggestion-chip" data-question="海淀区有哪些客户？">海淀区有哪些客户？</button>
-            <button class="suggestion-chip" data-question="请帮我找出最近最值得约见的三位客户。">请帮我找出最近最值得约见的三位客户。</button>
           </div>
 
           <form id="global-chat-form" class="stack-form docked-form ai-composer">
@@ -373,6 +371,14 @@
           </select>
         </label>
         <label>
+          <span>年龄</span>
+          <input id="create-age" name="age" type="number" min="0" max="120" />
+        </label>
+        <label>
+          <span>生日</span>
+          <input id="create-birthday" name="birthday" type="date" />
+        </label>
+        <label>
           <span>地址</span>
           <input id="create-location" name="location" type="text" placeholder="如：西二旗、回龙观、望京SOHO" />
           <small class="field-hint">填写客户常用的地址或地点，系统将自动识别所属区域。</small>
@@ -476,6 +482,14 @@
             <option value="男">男</option>
             <option value="女">女</option>
           </select>
+        </label>
+        <label>
+          <span>年龄</span>
+          <input id="edit-customer-age" name="age" type="number" min="0" max="120" />
+        </label>
+        <label>
+          <span>生日</span>
+          <input id="edit-customer-birthday" name="birthday" type="date" />
         </label>
         <label>
           <span>地址</span>

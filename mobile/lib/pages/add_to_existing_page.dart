@@ -7,6 +7,7 @@ import 'package:pinyin/pinyin.dart';
 import '../models/models.dart';
 import '../services/api.dart';
 import '../utils/customer_search.dart';
+import '../widgets/image_preview.dart';
 import 'customer_detail_page.dart';
 
 /// 添加到老客户页
@@ -89,7 +90,7 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
         keyword: normalizedKeyword.isEmpty || useLocalPinyinSearch
             ? null
             : normalizedKeyword,
-        pageSize: 200,
+        pageSize: 100,
         sortBy: 'name',
         sortOrder: 'asc',
       );
@@ -261,6 +262,18 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
       color: Colors.grey.shade50,
       child: Column(
         children: [
+          if (_selectedImages.isNotEmpty)
+            Container(
+              color: Colors.white,
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+              child: SelectedImagesPreview(
+                images: _selectedImages,
+                onRemove: (image) {
+                  setState(() => _selectedImages.remove(image));
+                },
+              ),
+            ),
+
           // 搜索框
           Container(
             color: Colors.white,

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../services/api_config.dart';
+
 /// 客户头像组件
 /// - 有头像 URL 则显示真实头像
 /// - 否则显示姓名首字，颜色根据姓名 hash 生成
@@ -17,10 +19,11 @@ class CustomerAvatar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (avatarUrl != null && avatarUrl!.isNotEmpty) {
+    final resolvedAvatarUrl = _resolveAvatarUrl(avatarUrl);
+    if (resolvedAvatarUrl != null) {
       return CircleAvatar(
         radius: radius,
-        backgroundImage: NetworkImage(avatarUrl!),
+        backgroundImage: NetworkImage(resolvedAvatarUrl),
         backgroundColor: Colors.grey[200],
       );
     }
@@ -40,6 +43,17 @@ class CustomerAvatar extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String? _resolveAvatarUrl(String? rawUrl) {
+    final value = rawUrl?.trim();
+    if (value == null || value.isEmpty) return null;
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      return value;
+    }
+    final origin = ApiConfig.baseUrl.replaceFirst(RegExp(r'/api/v1/?$'), '');
+    if (value.startsWith('/')) return '$origin$value';
+    return '$origin/$value';
   }
 
   /// 根据姓名 hash 生成颜色

@@ -10,7 +10,8 @@
 """
 import logging
 import uuid
-from datetime import datetime
+from io import BytesIO
+from datetime import date, datetime
 from typing import Optional, List
 
 from sqlalchemy import case, select, and_, or_, func, desc
@@ -87,6 +88,7 @@ class CustomerService:
             phone=data.phone.strip() if data.phone else None,
             gender=data.gender.strip() if data.gender else None,
             age=data.age,
+            birthday=data.birthday,
             location_raw=location_normalized.get("location_raw"),
             location_city=location_normalized.get("location_city"),
             location_district=location_normalized.get("location_district"),
@@ -100,6 +102,256 @@ class CustomerService:
         await self.session.flush()
         
         return customer_id
+
+    async def import_customers_excel(self, user_id: str, content: bytes) -> dict:
+        """从 Excel 批量导入客户。"""
+        from openpyxl import load_workbook
+
+        try:
+            wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
+        except Exception as exc:
+            raise ValueError("Excel 文件无法读取，请上传 .xlsx 格式文件") from exc
+
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+        if not rows:
+            return {
+                "created": 0,
+                "skipped": 0,
+                "failed": 0,
+                "total_rows": 0,
+                "errors": [{"row": 1, "name": None, "reason": "表格为空"}],
+            }
+
+        header_map = self._build_import_header_map(rows[0])
+        if "name" not in header_map:
+            return {
+                "created": 0,
+                "skipped": 0,
+                "failed": 0,
+                "total_rows": max(len(rows) - 1, 0),
+                "errors": [{"row": 1, "name": None, "reason": "缺少姓名列"}],
+            }
+
+        existing_result = await self.session.execute(
+            select(Customer).where(
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None),
+            )
+        )
+        existing_customers = existing_result.scalars().all()
+        existing_keys = {
+            self._customer_duplicate_key(customer.name, customer.phone)
+            for customer in existing_customers
+        }
+        batch_keys: set[tuple[str, str]] = set()
+
+        created = 0
+        skipped = 0
+        failed = 0
+        total_rows = 0
+        errors: list[dict] = []
+
+        for row_index, row in enumerate(rows[1:], start=2):
+            if self._is_empty_import_row(row):
+                continue
+            total_rows += 1
+            try:
+                item = self._parse_customer_import_row(row, header_map)
+                name = item["name"]
+                duplicate_key = self._customer_duplicate_key(name, item.get("phone"))
+                if duplicate_key in existing_keys or duplicate_key in batch_keys:
+                    skipped += 1
+                    self._append_import_error(
+                        errors,
+                        row=row_index,
+                        name=name,
+                        reason="客户已存在，已跳过",
+                    )
+                    continue
+
+                data = CustomerCreate(
+                    name=name,
+                    phone=item.get("phone"),
+                    gender=item.get("gender"),
+                    age=item.get("age"),
+                    birthday=item.get("birthday"),
+                    location=item.get("location"),
+                    tags=item.get("tags") or [],
+                )
+                await self.create_customer(user_id=user_id, data=data)
+                batch_keys.add(duplicate_key)
+                created += 1
+            except ValueError as exc:
+                failed += 1
+                self._append_import_error(
+                    errors,
+                    row=row_index,
+                    name=self._cell_to_text(self._get_import_cell(row, header_map, "name")),
+                    reason=str(exc),
+                )
+            except Exception:
+                failed += 1
+                logger.exception("Failed to import customer row %s", row_index)
+                self._append_import_error(
+                    errors,
+                    row=row_index,
+                    name=self._cell_to_text(self._get_import_cell(row, header_map, "name")),
+                    reason="导入失败",
+                )
+
+        return {
+            "created": created,
+            "skipped": skipped,
+            "failed": failed,
+            "total_rows": total_rows,
+            "errors": errors,
+        }
+
+    def _append_import_error(
+        self,
+        errors: list[dict],
+        *,
+        row: int,
+        name: str | None,
+        reason: str,
+    ) -> None:
+        if len(errors) >= 50:
+            return
+        errors.append({"row": row, "name": name, "reason": reason})
+
+    def _build_import_header_map(self, header_row: tuple) -> dict[str, int]:
+        aliases = {
+            "name": {"客户姓名", "姓名", "客户", "名字", "name", "customer name"},
+            "phone": {"电话", "手机", "手机号", "联系方式", "联系电话", "phone", "mobile"},
+            "gender": {"性别", "gender"},
+            "age": {"年龄", "age"},
+            "birthday": {"生日", "出生日期", "客户生日", "birthday", "birth date"},
+            "location": {"地址", "客户地址", "地区", "常住地址", "location", "address"},
+            "tags": {"标签", "客户标签", "分类", "备注标签", "tags"},
+        }
+        normalized_aliases = {
+            key: {self._normalize_import_header(alias) for alias in values}
+            for key, values in aliases.items()
+        }
+
+        header_map: dict[str, int] = {}
+        for index, cell in enumerate(header_row or ()):
+            header = self._normalize_import_header(cell)
+            if not header:
+                continue
+            for key, values in normalized_aliases.items():
+                if key not in header_map and header in values:
+                    header_map[key] = index
+        return header_map
+
+    def _normalize_import_header(self, value: object) -> str:
+        return str(value or "").strip().lower().replace(" ", "").replace("_", "")
+
+    def _is_empty_import_row(self, row: tuple) -> bool:
+        return not any(self._cell_to_text(value) for value in row or ())
+
+    def _get_import_cell(self, row: tuple, header_map: dict[str, int], key: str) -> object:
+        index = header_map.get(key)
+        if index is None or index >= len(row):
+            return None
+        return row[index]
+
+    def _parse_customer_import_row(self, row: tuple, header_map: dict[str, int]) -> dict:
+        name = self._cell_to_text(self._get_import_cell(row, header_map, "name"))
+        if not name:
+            raise ValueError("姓名不能为空")
+        if len(name) > 100:
+            raise ValueError("姓名不能超过 100 个字符")
+
+        phone = self._cell_to_text(self._get_import_cell(row, header_map, "phone"))
+        if phone and len(phone) > 50:
+            raise ValueError("电话不能超过 50 个字符")
+
+        gender = self._cell_to_text(self._get_import_cell(row, header_map, "gender"))
+        if gender and len(gender) > 20:
+            raise ValueError("性别不能超过 20 个字符")
+
+        location = self._cell_to_text(self._get_import_cell(row, header_map, "location"))
+        if location and len(location) > 255:
+            raise ValueError("地址不能超过 255 个字符")
+
+        age = self._parse_import_age(self._get_import_cell(row, header_map, "age"))
+        birthday = self._parse_import_birthday(
+            self._get_import_cell(row, header_map, "birthday")
+        )
+        tags = self._parse_import_tags(self._get_import_cell(row, header_map, "tags"))
+        return {
+            "name": name,
+            "phone": phone,
+            "gender": gender,
+            "age": age,
+            "birthday": birthday,
+            "location": location,
+            "tags": tags,
+        }
+
+    def _cell_to_text(self, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, float) and value.is_integer():
+            text = str(int(value))
+        else:
+            text = str(value)
+        text = text.strip()
+        return text or None
+
+    def _parse_import_age(self, value: object) -> int | None:
+        text = self._cell_to_text(value)
+        if not text:
+            return None
+        try:
+            age = int(float(text.replace("岁", "").strip()))
+        except ValueError as exc:
+            raise ValueError("年龄必须是数字") from exc
+        if age < 0 or age > 120:
+            raise ValueError("年龄必须在 0-120 之间")
+        return age
+
+    def _parse_import_birthday(self, value: object) -> date | None:
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+
+        text = self._cell_to_text(value)
+        if not text:
+            return None
+
+        normalized = (
+            text.replace("年", "-")
+            .replace("月", "-")
+            .replace("日", "")
+            .replace("/", "-")
+            .replace(".", "-")
+        )
+        try:
+            return datetime.strptime(normalized, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError("生日格式应为 YYYY-MM-DD") from exc
+
+    def _parse_import_tags(self, value: object) -> list[str]:
+        text = self._cell_to_text(value)
+        if not text:
+            return []
+        import re
+
+        tags = []
+        for part in re.split(r"[，,、;；\n]+", text):
+            tag = part.strip()
+            if tag and tag not in tags:
+                tags.append(tag[:40])
+        return tags[:20]
+
+    def _customer_duplicate_key(self, name: str, phone: str | None) -> tuple[str, str]:
+        return (str(name or "").strip().lower(), str(phone or "").strip())
     
     async def get_customer_list(
         self,
@@ -188,14 +440,17 @@ class CustomerService:
             CustomerListItem(
                 id=c.id,
                 name=c.name,
+                avatar=c.avatar,
                 phone=c.phone,
                 gender=c.gender,
                 age=c.age,
+                birthday=c.birthday,
                 location_raw=c.location_raw,
                 location_city=c.location_city,
                 location_district=c.location_district,
                 location_subarea=c.location_subarea,
                 tags=c.tags,
+                summary_status=c.summary_status,
                 updated_at=c.updated_at,
             )
             for c in customers
@@ -240,9 +495,11 @@ class CustomerService:
         return CustomerDetail(
             id=customer.id,
             name=customer.name,
+            avatar=customer.avatar,
             phone=customer.phone,
             gender=customer.gender,
             age=customer.age,
+            birthday=customer.birthday,
             location_raw=customer.location_raw,
             location_city=customer.location_city,
             location_district=customer.location_district,
@@ -319,6 +576,8 @@ class CustomerService:
             customer.gender = data.gender.strip() or None
         if data.age is not None:
             customer.age = data.age
+        if data.birthday is not None:
+            customer.birthday = data.birthday
         if data.tags is not None:
             customer.tags = data.tags
         if data.location is not None:
@@ -335,9 +594,11 @@ class CustomerService:
         return CustomerDetail(
             id=customer.id,
             name=customer.name,
+            avatar=customer.avatar,
             phone=customer.phone,
             gender=customer.gender,
             age=customer.age,
+            birthday=customer.birthday,
             location_raw=customer.location_raw,
             location_city=customer.location_city,
             location_district=customer.location_district,
@@ -769,3 +1030,97 @@ class CustomerService:
             "stale_summary_count": stale_summary,
             "stale_contact_count": stale_contact,
         }
+
+    async def export_customers_excel(self, user_id: str) -> bytes:
+        """导出当前用户的客户资料为 Excel。"""
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font, PatternFill
+        from openpyxl.utils import get_column_letter
+
+        result = await self.session.execute(
+            select(Customer)
+            .where(
+                Customer.user_id == user_id,
+                Customer.deleted_at.is_(None),
+            )
+            .order_by(Customer.name.asc(), Customer.updated_at.desc())
+        )
+        customers = result.scalars().all()
+
+        headers = [
+            "客户姓名",
+            "电话",
+            "性别",
+            "年龄",
+            "生日",
+            "地址",
+            "标签",
+            "客户画像",
+            "下一步建议",
+            "画像状态",
+            "创建时间",
+            "更新时间",
+        ]
+        status_labels = {
+            "ready": "已生成",
+            "stale": "待更新",
+            "updating": "生成中",
+            "failed": "生成失败",
+        }
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "客户"
+        ws.append(headers)
+
+        header_fill = PatternFill("solid", fgColor="E7F5F2")
+        for cell in ws[1]:
+            cell.font = Font(bold=True, color="0F172A")
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+
+        for customer in customers:
+            address_parts = [
+                customer.location_raw,
+                customer.location_city,
+                customer.location_district,
+                customer.location_subarea,
+            ]
+            address = " / ".join(
+                part.strip()
+                for part in address_parts
+                if isinstance(part, str) and part.strip()
+            )
+            ws.append(
+                [
+                    customer.name or "",
+                    customer.phone or "",
+                    customer.gender or "",
+                    customer.age if customer.age is not None else "",
+                    customer.birthday.strftime("%Y-%m-%d") if customer.birthday else "",
+                    address,
+                    "、".join(customer.tags or []),
+                    customer.summary_text or "",
+                    customer.advice_text or "",
+                    status_labels.get(customer.summary_status, customer.summary_status or ""),
+                    customer.created_at.strftime("%Y-%m-%d %H:%M:%S")
+                    if customer.created_at
+                    else "",
+                    customer.updated_at.strftime("%Y-%m-%d %H:%M:%S")
+                    if customer.updated_at
+                    else "",
+                ]
+            )
+
+        widths = [18, 18, 10, 8, 14, 28, 24, 48, 48, 12, 20, 20]
+        for index, width in enumerate(widths, start=1):
+            ws.column_dimensions[get_column_letter(index)].width = width
+
+        for row in ws.iter_rows(min_row=2):
+            for cell in row:
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
+
+        ws.freeze_panes = "A2"
+        output = BytesIO()
+        wb.save(output)
+        return output.getvalue()

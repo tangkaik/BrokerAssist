@@ -11,9 +11,24 @@ import '../services/api_config.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../widgets/customer_avatar.dart';
+import '../widgets/image_preview.dart';
 import '../widgets/skeleton.dart';
+import 'customer_ai_page.dart';
 import 'draft_record_page.dart';
 import 'edit_customer_page.dart';
+
+part 'customer_detail/customer_detail_layout.dart';
+part 'customer_detail/customer_detail_header.dart';
+part 'customer_detail/customer_detail_overview.dart';
+part 'customer_detail/customer_detail_shared_widgets.dart';
+part 'customer_detail/customer_detail_suggestions.dart';
+part 'customer_detail/customer_detail_records.dart';
+part 'customer_detail/customer_detail_actions.dart';
+part 'customer_detail/customer_detail_formatters.dart';
+
+const _detailPrimary = Color(0xFF0F766E);
+const _detailAccent = Color(0xFF1E3A5F);
+const _detailBorder = Color(0xFFE2E8F0);
 
 class CustomerDetailPage extends StatefulWidget {
   const CustomerDetailPage({super.key});
@@ -24,7 +39,6 @@ class CustomerDetailPage extends StatefulWidget {
 
 class _CustomerDetailPageState extends State<CustomerDetailPage> {
   final ImagePicker _imagePicker = ImagePicker();
-  final ScrollController _scrollController = ScrollController();
 
   String? _customerId;
   String? _loadedCustomerId;
@@ -39,6 +53,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
   bool _summaryExpanded = false;
   bool _adviceExpanded = false;
   final Set<String> _analyzingImageUrls = <String>{};
+  final Set<String> _expandedVisionImageUrls = <String>{};
 
   @override
   void didChangeDependencies() {
@@ -53,7 +68,6 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
 
   @override
   void dispose() {
-    _scrollController.dispose();
     super.dispose();
   }
 
@@ -198,7 +212,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
           _adviceText = _extractAdviceText(response.data!);
           _adviceUpdatedAt = response.data!['updated_at'] as String?;
         });
-        _showMessage('下一步建议已更新');
+        _showMessage('下次拜访建议已更新');
       } else {
         _showMessage('更新失败: ${response.error?.message ?? '未知错误'}');
       }
@@ -511,7 +525,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       if (!mounted) return;
       if (response.success) {
         _showMessage('客户已删除');
-        Navigator.pop(context);
+        Navigator.pop(context, true);
       } else {
         setState(() => _isLoading = false);
         _showMessage('删除失败: ${response.error?.message ?? '未知错误'}');
@@ -607,11 +621,29 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
     ).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _toggleSummaryExpanded() {
+    setState(() => _summaryExpanded = !_summaryExpanded);
+  }
+
+  void _toggleAdviceExpanded() {
+    setState(() => _adviceExpanded = !_adviceExpanded);
+  }
+
+  void _toggleVisionImageExpanded(String imageUrl) {
+    setState(() {
+      if (_expandedVisionImageUrls.contains(imageUrl)) {
+        _expandedVisionImageUrls.remove(imageUrl);
+      } else {
+        _expandedVisionImageUrls.add(imageUrl);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_customer?.name ?? '客户详情'),
+        title: const Text('客户详情'),
         actions: [
           IconButton(
             icon: const Icon(Icons.add_comment_outlined),
@@ -633,879 +665,4 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       body: _isLoading ? const CustomerDetailSkeleton() : _buildBody(),
     );
   }
-
-  Widget _buildBody() {
-    if (_customer == null) {
-      return const Center(child: Text('客户信息加载失败'));
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadCustomerData,
-      child: ListView(
-        controller: _scrollController,
-        padding: const EdgeInsets.all(16),
-        children: [
-          _buildInfoCard(),
-          const SizedBox(height: 16),
-          _buildSummarySection(),
-          const SizedBox(height: 16),
-          _buildNextStepSuggestionSection(),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              const Icon(Icons.history, color: Color(0xFF2196F3)),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  '沟通记录 (${_records.length})',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline, color: Color(0xFF2196F3)),
-                onPressed: () => _showAddRecordSheet(),
-                tooltip: '新增沟通记录',
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          _buildRecordsList(),
-          const SizedBox(height: 32),
-          _buildDeleteButton(),
-          const SizedBox(height: 100),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildInfoCard() {
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                CustomerAvatar(
-                  avatarUrl: _customer!.avatar,
-                  name: _customer!.name,
-                  radius: 28,
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _customer!.name,
-                        style: const TextStyle(
-                          fontSize: 22,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const Divider(),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                if (_customer!.gender != null)
-                  _buildTag(_displayGender(_customer!.gender!), Icons.person),
-                if (_customer!.age != null)
-                  _buildTag('${_customer!.age}岁', Icons.cake),
-                if (_customer?.createdAt != null)
-                  _buildTag(
-                    '${_customer!.createdAt.month}/${_customer!.createdAt.day} 创建',
-                    Icons.calendar_today,
-                  ),
-                if (_locationDisplay.isNotEmpty)
-                  _buildTag(_locationDisplay, Icons.location_on),
-              ],
-            ),
-            if (_customer!.phone != null && _customer!.phone!.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              GestureDetector(
-                onTap: () => _copyText('电话', _customer!.phone!),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(Icons.phone, size: 16, color: Colors.grey[600]),
-                    const SizedBox(width: 6),
-                    Text(
-                      _customer!.phone!,
-                      style: TextStyle(fontSize: 14, color: Colors.grey[700]),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            if (_customer!.tags.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _customer!.tags
-                    .map(
-                      (tag) => Chip(
-                        label: Text(tag),
-                        backgroundColor: const Color(0xFF2196F3).withAlpha(25),
-                        labelStyle: const TextStyle(color: Color(0xFF2196F3)),
-                        padding: EdgeInsets.zero,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                    )
-                    .toList(),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildTag(String text, IconData icon) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: Colors.grey[100],
-        borderRadius: BorderRadius.circular(4),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: Colors.grey[600]),
-          const SizedBox(width: 4),
-          Text(text, style: TextStyle(fontSize: 12, color: Colors.grey[700])),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummarySection() {
-    final summary = _customer?.summary?.trim() ?? '';
-    final hasSummary = summary.isNotEmpty;
-    final isUpdating = _customer?.summaryStatus == 'updating';
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Row(
-                    children: [
-                      Icon(Icons.summarize, color: Color(0xFF2196F3)),
-                      SizedBox(width: 8),
-                      Text(
-                        '客户画像摘要',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                if (isUpdating)
-                  const Padding(
-                    padding: EdgeInsets.only(right: 4),
-                    child: SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                  ),
-                IconButton(
-                  onPressed: _isRefreshingSummary || isUpdating
-                      ? null
-                      : _refreshSummary,
-                  icon: _isRefreshingSummary
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  tooltip: '刷新',
-                ),
-                IconButton(
-                  onPressed: hasSummary
-                      ? () => _copyText('客户画像', summary)
-                      : null,
-                  icon: const Icon(Icons.copy_outlined),
-                  tooltip: '复制',
-                ),
-                IconButton(
-                  onPressed: hasSummary
-                      ? () => _shareText('客户画像摘要', summary)
-                      : null,
-                  icon: const Icon(Icons.ios_share_outlined),
-                  tooltip: '分享',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            if (hasSummary)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
-                child: _buildExpandableText(summary, _summaryExpanded, () {
-                  setState(() => _summaryExpanded = !_summaryExpanded);
-                }),
-              )
-            else
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(20),
-                decoration: BoxDecoration(
-                  color: Colors.grey[50],
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.grey[200]!),
-                ),
-                child: Center(
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.description_outlined,
-                        size: 32,
-                        color: Colors.grey[400],
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        '暂无客户画像摘要',
-                        style: TextStyle(color: Colors.grey[600]),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        '点击右上角刷新图标生成',
-                        style: TextStyle(color: Colors.grey[400], fontSize: 12),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildNextStepSuggestionSection() {
-    final hasAdvice = _adviceText.isNotEmpty;
-
-    return Card(
-      elevation: 2,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Expanded(
-                  child: Row(
-                    children: [
-                      Icon(Icons.lightbulb_outline, color: Color(0xFF0F766E)),
-                      SizedBox(width: 8),
-                      Text(
-                        '下一步建议',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  onPressed: _isRefreshingAdvice ? null : _refreshAdvice,
-                  icon: _isRefreshingAdvice
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.refresh),
-                  tooltip: '刷新',
-                ),
-                IconButton(
-                  onPressed: hasAdvice
-                      ? () => _copyText('下一步建议', _adviceText)
-                      : null,
-                  icon: const Icon(Icons.copy_outlined),
-                  tooltip: '复制',
-                ),
-                IconButton(
-                  onPressed: hasAdvice
-                      ? () => _shareText('下一步建议', _adviceText)
-                      : null,
-                  icon: const Icon(Icons.ios_share_outlined),
-                  tooltip: '分享',
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3FAF8),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFFBFE4DD)),
-              ),
-              child: hasAdvice
-                  ? _buildExpandableText(_adviceText, _adviceExpanded, () {
-                      setState(() => _adviceExpanded = !_adviceExpanded);
-                    })
-                  : Text(
-                      '根据客户画像和最近沟通记录，生成下一次拜访前最值得关注的问题、开场方式和跟进重点。',
-                      style: TextStyle(fontSize: 14, height: 1.65, color: Colors.grey[700]),
-                    ),
-            ),
-            if (_adviceUpdatedAt != null && _adviceUpdatedAt!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
-                '上次生成：${_adviceUpdatedAt!.replaceFirst('T', ' ').split('.').first}',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-              ),
-            ] else if (!hasAdvice) ...[
-              const SizedBox(height: 8),
-              Text(
-                '点击右上角刷新图标生成',
-                style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecordsList() {
-    if (_records.isEmpty) {
-      return Container(
-        padding: const EdgeInsets.all(32),
-        decoration: BoxDecoration(
-          color: Colors.grey[50],
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Center(
-          child: Column(
-            children: [
-              Icon(
-                Icons.chat_bubble_outline,
-                size: 48,
-                color: Colors.grey[300],
-              ),
-              const SizedBox(height: 12),
-              Text('暂无沟通记录', style: TextStyle(color: Colors.grey[600])),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return Column(children: _records.map(_buildRecordItem).toList());
-  }
-
-  Widget _buildRecordItem(Record record) {
-    final shareText = _recordShareText(record);
-    return Card(
-      margin: const EdgeInsets.only(bottom: 12),
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Icon(
-                        (record.type == 'manual' || record.type == 'text')
-                            ? Icons.edit
-                            : Icons.mic,
-                        size: 16,
-                        color: Colors.grey[600],
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        (record.type == 'manual' || record.type == 'text')
-                            ? '手动记录'
-                            : '语音记录',
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      ),
-                    ],
-                  ),
-                ),
-                Text(
-                  '${record.createdAt.month}/${record.createdAt.day} '
-                  '${_pad(record.createdAt.hour)}:${_pad(record.createdAt.minute)}',
-                  style: TextStyle(fontSize: 12, color: Colors.grey[500]),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              record.content,
-              style: const TextStyle(fontSize: 15, height: 1.6),
-            ),
-            if (record.images.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              _buildRecordImages(record),
-            ],
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _buildPlainIconAction(
-                  icon: Icons.copy_outlined,
-                  tooltip: '复制',
-                  onTap: () => _copyText('拜访记录', shareText),
-                ),
-                _buildPlainIconAction(
-                  icon: Icons.ios_share_outlined,
-                  tooltip: '分享',
-                  onTap: () => _shareText('拜访记录', shareText),
-                ),
-                _buildPlainIconAction(
-                  icon: Icons.edit_outlined,
-                  tooltip: '编辑',
-                  onTap: () => _showEditRecordSheet(record),
-                ),
-                _buildPlainIconAction(
-                  icon: Icons.delete_outline,
-                  color: Colors.red,
-                  tooltip: '删除',
-                  onTap: () => _showDeleteRecordDialog(record),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecordImages(Record record) {
-    return Column(
-      children: record.images.map((image) {
-        final imageUrl = _resolveMediaUrl(image.url);
-        final isAnalyzing = _analyzingImageUrls.contains(image.url);
-        return Container(
-          width: double.infinity,
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              GestureDetector(
-                onTap: () => _showImagePreview(imageUrl, image.name),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: Stack(
-                    children: [
-                      Image.network(
-                        imageUrl,
-                        width: 96,
-                        height: 96,
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) => Container(
-                          width: 96,
-                          height: 96,
-                          color: Colors.grey[200],
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.broken_image_outlined),
-                        ),
-                      ),
-                      Positioned(
-                        top: 6,
-                        right: 6,
-                        child: Material(
-                          color: Colors.black54,
-                          borderRadius: BorderRadius.circular(999),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(999),
-                            onTap: isAnalyzing
-                                ? null
-                                : () => _analyzeRecordImage(
-                                    recordId: record.id,
-                                    imageUrl: image.url,
-                                  ),
-                            child: Padding(
-                              padding: const EdgeInsets.all(6),
-                              child: isAnalyzing
-                                  ? const SizedBox(
-                                      width: 14,
-                                      height: 14,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        color: Colors.white,
-                                      ),
-                                    )
-                                  : const Icon(
-                                      Icons.auto_awesome_outlined,
-                                      size: 16,
-                                      color: Colors.white,
-                                    ),
-                            ),
-                          ),
-                        ),
-                      ),
-                      if (image.visionAnswer?.isNotEmpty == true)
-                        Positioned(
-                          right: 6,
-                          bottom: 6,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.black.withValues(alpha: 0.68),
-                              borderRadius: BorderRadius.circular(999),
-                            ),
-                            child: const Text(
-                              '已识别',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                              ),
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            image.name.isNotEmpty ? image.name : '记录图片',
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF1F2937),
-                            ),
-                          ),
-                        ),
-                        if (isAnalyzing)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 8),
-                            child: SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    if (image.visionAnswer?.isNotEmpty == true)
-                      _buildVisionAnswerBox(image.visionAnswer!)
-                    else
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFF1F5F9),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Text(
-                          isAnalyzing ? '正在识别图片...' : '暂未识别，点图片右上角星标开始识别',
-                          style: TextStyle(
-                            fontSize: 12,
-                            height: 1.5,
-                            color: Colors.grey[700],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildVisionAnswerBox(String answer) {
-    final looksLikeTable = _looksLikeTableText(answer);
-    final textWidget = SelectableText(
-      answer,
-      style: TextStyle(
-        fontSize: 12,
-        height: 1.55,
-        color: Colors.grey[800],
-        fontFamily: looksLikeTable ? 'monospace' : null,
-      ),
-    );
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEEF8F6),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFD0EAE4)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '识别结果',
-            style: TextStyle(
-              fontSize: 11,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF0D6C63),
-            ),
-          ),
-          const SizedBox(height: 6),
-          if (looksLikeTable)
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 320),
-                child: textWidget,
-              ),
-            )
-          else
-            textWidget,
-        ],
-      ),
-    );
-  }
-
-  static const int _expandThreshold = 150;
-
-  Widget _buildExpandableText(String text, bool expanded, VoidCallback onToggle) {
-    final needsToggle = text.length > _expandThreshold;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        MarkdownBody(
-          data: needsToggle && !expanded ? '${text.substring(0, _expandThreshold)}...' : text,
-          selectable: true,
-          styleSheet: MarkdownStyleSheet(
-            p: const TextStyle(fontSize: 14, height: 1.7, color: Colors.black87),
-            strong: const TextStyle(fontWeight: FontWeight.w700),
-            h1: const TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
-            h2: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            h3: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700),
-          ),
-        ),
-        if (needsToggle)
-          Align(
-            alignment: Alignment.centerRight,
-            child: TextButton(
-              onPressed: onToggle,
-              child: Text(expanded ? '收起 ▲' : '展开全部 ▼',
-                  style: const TextStyle(fontSize: 12)),
-            ),
-          ),
-      ],
-    );
-  }
-
-  bool _looksLikeTableText(String text) {
-    final lines = text.split('\n');
-    final pipeHeavyLines = lines.where((line) => line.contains('|')).length;
-    return pipeHeavyLines >= 2 ||
-        text.contains('---|') ||
-        text.contains('|---');
-  }
-
-  Widget _buildPlainIconAction({
-    required IconData icon,
-    required String tooltip,
-    required VoidCallback onTap,
-    Color? color,
-  }) {
-    return IconButton(
-      onPressed: onTap,
-      tooltip: tooltip,
-      visualDensity: VisualDensity.compact,
-      padding: const EdgeInsets.all(6),
-      constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-      icon: Icon(icon, size: 20, color: color),
-    );
-  }
-
-  Widget _buildEditableExistingImages({
-    required List<RecordImage> keptImages,
-    required ValueChanged<RecordImage> onRemove,
-  }) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: keptImages.map((image) {
-        final imageUrl = _resolveMediaUrl(image.url);
-        return _buildImageTile(
-          child: Image.network(
-            imageUrl,
-            fit: BoxFit.cover,
-            errorBuilder: (context, error, stackTrace) => Container(
-              color: Colors.grey[200],
-              alignment: Alignment.center,
-              child: const Icon(Icons.broken_image_outlined),
-            ),
-          ),
-          onRemove: () => onRemove(image),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildEditableNewImages({
-    required List<XFile> imageFiles,
-    required ValueChanged<XFile> onRemove,
-  }) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: imageFiles.map((image) {
-        return _buildImageTile(
-          child: Image.file(File(image.path), fit: BoxFit.cover),
-          onRemove: () => onRemove(image),
-        );
-      }).toList(),
-    );
-  }
-
-  Widget _buildImageTile({
-    required Widget child,
-    required VoidCallback onRemove,
-  }) {
-    return Stack(
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: SizedBox(width: 88, height: 88, child: child),
-        ),
-        Positioned(
-          top: 4,
-          right: 4,
-          child: GestureDetector(
-            onTap: onRemove,
-            child: Container(
-              decoration: const BoxDecoration(
-                color: Colors.black54,
-                shape: BoxShape.circle,
-              ),
-              padding: const EdgeInsets.all(2),
-              child: const Icon(Icons.close, color: Colors.white, size: 16),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCountChip(String text) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF3F7FB),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: const Color(0xFFD4E1EF)),
-      ),
-      child: Text(
-        text,
-        style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-      ),
-    );
-  }
-
-  Widget _buildDeleteButton() {
-    return OutlinedButton.icon(
-      onPressed: _showDeleteConfirmDialog,
-      icon: const Icon(Icons.delete_outline, color: Colors.red),
-      label: const Text('删除客户', style: TextStyle(color: Colors.red)),
-      style: OutlinedButton.styleFrom(
-        foregroundColor: Colors.red,
-        side: const BorderSide(color: Colors.red),
-        minimumSize: const Size(double.infinity, 48),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      ),
-    );
-  }
-
-  String get _locationDisplay {
-    final c = _customer;
-    if (c == null) return '';
-    final parts = <String>[
-      if (c.locationRaw != null && c.locationRaw!.isNotEmpty) c.locationRaw!,
-      if (c.locationDistrict != null && c.locationDistrict!.isNotEmpty)
-        c.locationDistrict!,
-      if (c.locationSubarea != null && c.locationSubarea!.isNotEmpty)
-        c.locationSubarea!,
-    ];
-    // 去重：避免 location_raw 已经包含下级信息时重复显示
-    final seen = <String>{};
-    final unique = <String>[];
-    for (final p in parts) {
-      final trimmed = p.trim();
-      if (trimmed.isNotEmpty && seen.add(trimmed)) {
-        unique.add(trimmed);
-      }
-    }
-    return unique.join(' · ');
-  }
-
-  String _displayGender(String raw) {
-    switch (raw.trim()) {
-      case 'male':
-        return '男';
-      case 'female':
-        return '女';
-      default:
-        return raw;
-    }
-  }
-
-  String _pad(int value) => value.toString().padLeft(2, '0');
 }

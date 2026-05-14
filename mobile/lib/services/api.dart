@@ -103,6 +103,7 @@ class ApiService {
     String? phone,
     String? gender,
     int? age,
+    String? birthday,
     String? location,
     List<String>? tags,
   }) async {
@@ -111,6 +112,7 @@ class ApiService {
       phone: phone,
       gender: gender,
       age: age,
+      birthday: birthday,
       location: location,
       tags: tags,
     );
@@ -200,6 +202,16 @@ class ApiService {
     return _customers.getSummaryStats();
   }
 
+  Future<ApiResponse<DownloadedFile>> exportCustomersExcel() async {
+    return _customers.exportCustomersExcel();
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> importCustomersExcel(
+    String filePath,
+  ) async {
+    return _customers.importCustomersExcel(filePath);
+  }
+
   Future<ApiResponse<Map<String, dynamic>>> deleteCustomer(
     String customerId,
   ) async {
@@ -212,6 +224,7 @@ class ApiService {
     String? phone,
     String? gender,
     int? age,
+    String? birthday,
     String? location,
     List<String>? tags,
   }) async {
@@ -221,6 +234,7 @@ class ApiService {
       phone: phone,
       gender: gender,
       age: age,
+      birthday: birthday,
       location: location,
       tags: tags,
     );

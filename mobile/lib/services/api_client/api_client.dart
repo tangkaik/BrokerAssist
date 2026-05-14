@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -61,6 +62,40 @@ class ApiClient {
       return _error('NETWORK_ERROR', '网络连接失败');
     } catch (e) {
       return _error('UNKNOWN_ERROR', '请求失败');
+    }
+  }
+
+  Future<ApiResponse<DownloadedFile>> downloadFile(String path) async {
+    try {
+      final url = Uri.parse(buildUrl(path));
+      final response = await _client
+          .get(url, headers: {
+            if (AuthSession.token.isNotEmpty)
+              'Authorization': 'Bearer ${AuthSession.token}',
+          })
+          .timeout(Duration(seconds: AppConfig.receiveTimeout));
+
+      if (response.statusCode >= 200 && response.statusCode < 300) {
+        return ApiResponse(
+          success: true,
+          data: DownloadedFile(
+            bytes: response.bodyBytes,
+            filename: _filenameFromContentDisposition(
+              response.headers['content-disposition'],
+            ),
+            contentType: response.headers['content-type'],
+          ),
+        );
+      }
+
+      if (response.statusCode >= 500) {
+        return _error('SERVER_ERROR', '服务暂时不可用，请稍后再试');
+      }
+      return _error('HTTP_${response.statusCode}', '下载失败');
+    } on SocketException catch (_) {
+      return _error('NETWORK_ERROR', '网络连接失败');
+    } catch (_) {
+      return _error('DOWNLOAD_ERROR', '下载失败');
     }
   }
 
@@ -293,4 +328,34 @@ class ApiClient {
 
     return _error(code, message);
   }
+
+  String _filenameFromContentDisposition(String? contentDisposition) {
+    if (contentDisposition == null || contentDisposition.isEmpty) {
+      return 'customers.xlsx';
+    }
+    final utf8Match = RegExp(
+      "filename\\*=UTF-8''([^;]+)",
+      caseSensitive: false,
+    ).firstMatch(contentDisposition);
+    if (utf8Match != null) {
+      return Uri.decodeComponent(utf8Match.group(1)!);
+    }
+    final asciiMatch = RegExp(
+      'filename="?([^";]+)"?',
+      caseSensitive: false,
+    ).firstMatch(contentDisposition);
+    return asciiMatch?.group(1) ?? 'customers.xlsx';
+  }
+}
+
+class DownloadedFile {
+  final Uint8List bytes;
+  final String filename;
+  final String? contentType;
+
+  const DownloadedFile({
+    required this.bytes,
+    required this.filename,
+    this.contentType,
+  });
 }

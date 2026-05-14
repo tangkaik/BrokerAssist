@@ -99,6 +99,7 @@ def create_application() -> FastAPI:
         allow_credentials=settings.cors_allow_credentials,
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Content-Disposition"],
     )
     
     # 注册所有路由

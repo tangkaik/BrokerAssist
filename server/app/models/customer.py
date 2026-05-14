@@ -3,10 +3,10 @@
 
 定义客户数据的 ORM 映射
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, List
 
-from sqlalchemy import Integer, String, DateTime, Text, func
+from sqlalchemy import Date, Integer, String, DateTime, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,6 +48,12 @@ class Customer(Base):
         nullable=True,
         comment="客户电话"
     )
+
+    avatar: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="客户头像 URL"
+    )
     
     gender: Mapped[Optional[str]] = mapped_column(
         String(20),
@@ -59,6 +65,12 @@ class Customer(Base):
         Integer,
         nullable=True,
         comment="客户年龄"
+    )
+
+    birthday: Mapped[Optional[date]] = mapped_column(
+        Date,
+        nullable=True,
+        comment="客户生日"
     )
 
     # 客户主地址（结构化）。记录/拜访地点保存在 records.location_*。

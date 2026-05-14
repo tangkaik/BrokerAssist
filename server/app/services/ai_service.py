@@ -8,6 +8,8 @@ import calendar
 import logging
 import re
 from datetime import date, datetime
+from functools import lru_cache
+from pathlib import Path
 
 from sqlalchemy import func, select
 
@@ -47,6 +49,22 @@ SUPPORTED_BUSINESS_TASK_TYPES = {
 SUPPORTED_SORTS = {"last_contact_desc", "last_contact_asc", None}
 SUPPORTED_LOCATION_SCOPES = {"customer_address", "record_location", "any"}
 logger = logging.getLogger(__name__)
+PRODUCT_MANUAL_MAX_CHARS = 20000
+
+
+@lru_cache(maxsize=1)
+def load_product_manual() -> str:
+    """Read the product manual used as the only source for app-help answers."""
+    manual_path = Path(__file__).resolve().parents[3] / "docs" / "产品说明书.md"
+    try:
+        manual = manual_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        logger.exception("[AI] Product manual is unavailable: %s", manual_path)
+        return "当前产品说明里还没有这部分信息。"
+
+    if len(manual) > PRODUCT_MANUAL_MAX_CHARS:
+        return manual[:PRODUCT_MANUAL_MAX_CHARS] + "\n\n（产品说明书后续内容因长度限制未放入本次问答上下文。）"
+    return manual
 
 
 def looks_like_customer_query(question: str) -> bool:
@@ -595,6 +613,7 @@ class AIService:
                     "phone": customer.phone or "未设置",
                     "gender": customer.gender,
                     "age": customer.age,
+                    "birthday": customer.birthday.strftime("%Y-%m-%d") if customer.birthday else None,
                     "location_raw": customer.location_raw,
                     "location_city": customer.location_city,
                     "location_district": customer.location_district,
@@ -644,6 +663,7 @@ class AIService:
                 "phone": customer.phone or "未设置",
                 "gender": customer.gender or "未知",
                 "age": customer.age,
+                "birthday": customer.birthday.strftime("%Y-%m-%d") if customer.birthday else None,
                 "location_raw": customer.location_raw or "未知",
                 "tags": customer.tags or [],
                 "summary": customer.summary_text or "暂无客户画像",
@@ -704,6 +724,7 @@ class AIService:
             f"电话: {customer.get('phone') or '未设置'}",
             f"性别: {customer.get('gender') or '未知'}",
             f"年龄: {age}",
+            f"生日: {customer.get('birthday') or '未知'}",
             f"地址: {customer.get('location_raw') or '未知'}",
             f"标签: {tags}",
             f"记录数量: {customer.get('records_count', 0)}",
@@ -818,6 +839,7 @@ class AIService:
                     prompt=_app_help_qa_prompt(
                         question=question,
                         conversation_context=conversation_context,
+                        product_manual=load_product_manual(),
                         industry_key=industry_key,
                     ),
                     system_prompt=_app_help_qa_system(industry_key=industry_key),
@@ -845,6 +867,7 @@ class AIService:
                 f"{index}. [{customer['name']}|{customer['id']}]\n"
                 f"- 标签: {tags}\n"
                 f"- 年龄: {customer.get('age') if customer.get('age') is not None else '未知'}\n"
+                f"- 生日: {customer.get('birthday') or '未知'}\n"
                 f"- 地址: {customer.get('location_raw') or '未知'}\n"
                 f"- 最后联系: {customer.get('last_contact')}\n"
                 f"- 摘要: {summary}\n"
@@ -896,26 +919,32 @@ class AIService:
         if task_type == "visit_brief":
             return (
                 "输出会谈前简报，包含：客户现状、最近沟通重点、本次建议目标、"
-                "建议沟通顺序、需要确认的问题。控制在 5-8 个要点。"
+                "建议沟通顺序、需要确认的问题。客户现状优先来自【客户画像】，"
+                "行动建议优先来自【下一步建议】，沟通重点只能来自【最近沟通记录】。"
+                "控制在 5-8 个要点，不要加入没有依据的客户偏好、预算、承诺或风险判断。"
             )
         if task_type == "last_visit_summary":
             return (
                 "优先总结最近一次实质沟通或拜访，包含：沟通背景、客户表达、"
-                "顾虑/机会、待跟进事项。不要把久远记录混成一次拜访。"
+                "顾虑/机会、待跟进事项。只能依据【最近沟通记录】，"
+                "不要把久远记录混成一次拜访，也不要补充记录中没有出现的事实。"
             )
         if task_type == "next_step_advice":
             return (
                 "输出 2-3 条下一步动作，每条说明动作、目的和沟通切入点。"
-                "如果信息不足，优先建议补充关键信息。"
+                "下一步动作优先依据【下一步建议】，其次参考【客户画像】和【最近沟通记录】。"
+                "如果信息不足，优先建议补充关键信息，不要强行推进。"
             )
         if task_type == "question_checklist":
             return (
                 "输出 3-5 个下次沟通应确认的问题。问题要具体、自然，"
-                "并简短说明每个问题为什么要问。"
+                "并简短说明每个问题为什么要问。问题必须来自客户画像、下一步建议"
+                "或最近沟通记录中的缺口，不要凭行业模板泛泛列问题。"
             )
         return (
             "围绕当前客户完成用户任务。输出结构清晰、简洁可用；"
             "如果用户同时要总结和建议，可以分成“已知情况”和“建议下一步”。"
+            "所有客户事实都必须能在当前客户上下文中找到依据。"
         )
 
     def _format_business_match_options(self, matches: list[dict]) -> str:
@@ -933,6 +962,44 @@ class AIService:
         if not advice or advice == "暂无下一步建议":
             return False
         return True
+
+    def _has_recent_records(self, customer: dict) -> bool:
+        return bool(customer.get("recent_records"))
+
+    def _missing_business_context_message(self, customer: dict, task_type: str) -> str | None:
+        customer_link = f"[{customer['name']}|{customer['id']}]"
+        has_summary_and_advice = self._has_generated_summary_and_advice(customer)
+        has_records = self._has_recent_records(customer)
+
+        if task_type == "wechat_message" and not has_summary_and_advice:
+            return (
+                f"我还不能直接给 {customer_link} 写微信，"
+                "因为这位客户还没有完整的客户画像和下一步建议。"
+                "请先在客户详情页生成或刷新画像和建议，或者先补充一条真实沟通记录。"
+            )
+
+        if task_type == "last_visit_summary" and not has_records:
+            return (
+                f"我还不能总结 {customer_link} 的上次沟通，"
+                "因为这位客户还没有可用的沟通记录。请先保存一次真实沟通记录。"
+            )
+
+        if task_type in {"visit_brief", "next_step_advice", "question_checklist"} and not (
+            has_summary_and_advice or has_records
+        ):
+            return (
+                f"我还不能为 {customer_link} 准备这类内容，"
+                "因为当前缺少客户画像、下一步建议和沟通记录。"
+                "请先保存沟通记录，或生成客户画像和下一步建议。"
+            )
+
+        if task_type == "general" and not (has_summary_and_advice or has_records):
+            return (
+                f"我读取到了 {customer_link}，但目前资料还不够。"
+                "请先保存一条沟通记录，或生成客户画像和下一步建议后再让我整理。"
+            )
+
+        return None
 
     async def _answer_business_assist(
         self,
@@ -980,12 +1047,9 @@ class AIService:
 
         customer_context_text = self._format_single_customer_context(customer_context)
         task_type = business_plan.get("task_type") or "general"
-        if task_type == "wechat_message" and not self._has_generated_summary_and_advice(customer_context):
-            return (
-                f"我还不能直接给 [{customer_context['name']}|{customer_context['id']}] 写微信，"
-                "因为这位客户还没有完整的客户画像和下一步建议。"
-                "请先在客户详情页生成或刷新画像和建议，或者先补充一条真实沟通记录。"
-            )
+        missing_context_message = self._missing_business_context_message(customer_context, task_type)
+        if missing_context_message:
+            return missing_context_message
 
         try:
             kimi = KimiClient()

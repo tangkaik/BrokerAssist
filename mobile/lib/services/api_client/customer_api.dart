@@ -25,6 +25,7 @@ class CustomerApi {
     String? phone,
     String? gender,
     int? age,
+    String? birthday,
     String? location,
     List<String>? tags,
   }) async {
@@ -37,6 +38,9 @@ class CustomerApi {
     }
     if (age != null) {
       body['age'] = age;
+    }
+    if (birthday != null && birthday.isNotEmpty) {
+      body['birthday'] = birthday;
     }
     if (location != null && location.isNotEmpty) {
       body['location'] = location;
@@ -130,6 +134,21 @@ class CustomerApi {
     );
   }
 
+  Future<ApiResponse<DownloadedFile>> exportCustomersExcel() async {
+    return _client.downloadFile('/customers/export');
+  }
+
+  Future<ApiResponse<Map<String, dynamic>>> importCustomersExcel(
+    String filePath,
+  ) async {
+    return _client.postMultipartFile(
+      '/customers/import',
+      fieldName: 'file',
+      filePath: filePath,
+      fromJsonT: (data) => data as Map<String, dynamic>,
+    );
+  }
+
   Future<ApiResponse<Map<String, dynamic>>> deleteCustomer(
     String customerId,
   ) async {
@@ -145,6 +164,7 @@ class CustomerApi {
     String? phone,
     String? gender,
     int? age,
+    String? birthday,
     String? location,
     List<String>? tags,
   }) async {
@@ -160,6 +180,9 @@ class CustomerApi {
     }
     if (age != null) {
       body['age'] = age;
+    }
+    if (birthday != null) {
+      body['birthday'] = birthday;
     }
     if (location != null) {
       body['location'] = location;

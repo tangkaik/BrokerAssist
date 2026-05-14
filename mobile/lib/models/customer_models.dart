@@ -5,6 +5,7 @@ class Customer {
   final String? phone;
   final String? gender;
   final int? age;
+  final String? birthday;
   final String? locationRaw;
   final String? locationCity;
   final String? locationDistrict;
@@ -23,6 +24,7 @@ class Customer {
     this.phone,
     this.gender,
     this.age,
+    this.birthday,
     this.locationRaw,
     this.locationCity,
     this.locationDistrict,
@@ -67,6 +69,7 @@ class Customer {
       phone: json['phone'] as String?,
       gender: json['gender'] as String?,
       age: json['age'] as int?,
+      birthday: json['birthday'] as String?,
       locationRaw: json['location_raw'] as String?,
       locationCity: json['location_city'] as String?,
       locationDistrict: json['location_district'] as String?,
@@ -91,6 +94,7 @@ class Customer {
       'avatar': avatar,
       'summary': summary,
       'age': age,
+      'birthday': birthday,
       'last_contact_at': lastContactAt?.toIso8601String(),
       'created_at': createdAt.toIso8601String(),
     };

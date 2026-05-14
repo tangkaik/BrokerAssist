@@ -220,7 +220,9 @@ class _ActionButton extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 14),
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(8),
-            border: filled ? null : Border.all(color: HomeColors.teal.withValues(alpha: 0.3)),
+            border: filled
+                ? null
+                : Border.all(color: HomeColors.teal.withValues(alpha: 0.3)),
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -260,9 +262,7 @@ class QuickCreateCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(8),
         child: Container(
           padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-          ),
+          decoration: BoxDecoration(borderRadius: BorderRadius.circular(8)),
           child: Row(
             children: [
               Container(
@@ -272,8 +272,11 @@ class QuickCreateCard extends StatelessWidget {
                   color: Colors.white.withValues(alpha: 0.2),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.person_add_outlined,
-                    color: Colors.white, size: 22),
+                child: const Icon(
+                  Icons.person_add_outlined,
+                  color: Colors.white,
+                  size: 22,
+                ),
               ),
               const SizedBox(width: 12),
               const Expanded(
@@ -291,10 +294,7 @@ class QuickCreateCard extends StatelessWidget {
                     SizedBox(height: 4),
                     Text(
                       '仅需姓名 + 电话',
-                      style: TextStyle(
-                        color: Colors.white70,
-                        fontSize: 12,
-                      ),
+                      style: TextStyle(color: Colors.white70, fontSize: 12),
                     ),
                   ],
                 ),
@@ -482,6 +482,7 @@ class _QuickCreateCustomerSheetState extends State<QuickCreateCustomerSheet> {
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
   final _ageController = TextEditingController();
+  final _birthdayController = TextEditingController();
   final _locationController = TextEditingController();
   String? _gender;
   bool _isSaving = false;
@@ -491,6 +492,7 @@ class _QuickCreateCustomerSheetState extends State<QuickCreateCustomerSheet> {
     _nameController.dispose();
     _phoneController.dispose();
     _ageController.dispose();
+    _birthdayController.dispose();
     _locationController.dispose();
     super.dispose();
   }
@@ -498,9 +500,9 @@ class _QuickCreateCustomerSheetState extends State<QuickCreateCustomerSheet> {
   Future<void> _save() async {
     final name = _nameController.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('请输入客户姓名')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('请输入客户姓名')));
       return;
     }
     setState(() => _isSaving = true);
@@ -513,6 +515,9 @@ class _QuickCreateCustomerSheetState extends State<QuickCreateCustomerSheet> {
             : _phoneController.text.trim(),
         gender: _gender,
         age: ageText.isNotEmpty ? int.tryParse(ageText) : null,
+        birthday: _birthdayController.text.trim().isEmpty
+            ? null
+            : _birthdayController.text.trim(),
         location: _locationController.text.trim().isEmpty
             ? null
             : _locationController.text.trim(),
@@ -528,9 +533,9 @@ class _QuickCreateCustomerSheetState extends State<QuickCreateCustomerSheet> {
       }
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('创建失败: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('创建失败: $e')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -576,7 +581,9 @@ class _QuickCreateCustomerSheetState extends State<QuickCreateCustomerSheet> {
               decoration: InputDecoration(
                 labelText: '客户姓名 *',
                 hintText: '请输入姓名',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 contentPadding: const EdgeInsets.all(14),
               ),
             ),
@@ -587,79 +594,106 @@ class _QuickCreateCustomerSheetState extends State<QuickCreateCustomerSheet> {
               decoration: InputDecoration(
                 labelText: '电话',
                 hintText: '选填',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              contentPadding: const EdgeInsets.all(14),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _ageController,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: '年龄',
-              hintText: '选填',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              contentPadding: const EdgeInsets.all(14),
-            ),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: _locationController,
-            decoration: InputDecoration(
-              labelText: '地址/区域',
-              hintText: '如：海淀五路居、国贸',
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-              contentPadding: const EdgeInsets.all(14),
-            ),
-          ),
-          const SizedBox(height: 14),
-          Row(
-            children: [
-              const Text('性别：', style: TextStyle(color: HomeColors.muted, fontSize: 14)),
-              const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('男'),
-                selected: _gender == 'male',
-                onSelected: (_) => setState(() => _gender = 'male'),
-              ),
-              const SizedBox(width: 8),
-              ChoiceChip(
-                label: const Text('女'),
-                selected: _gender == 'female',
-                onSelected: (_) => setState(() => _gender = 'female'),
-              ),
-              const SizedBox(width: 8),
-              if (_gender != null)
-                GestureDetector(
-                  onTap: () => setState(() => _gender = null),
-                  child: const Text('清除', style: TextStyle(fontSize: 12, color: HomeColors.muted)),
-                ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: FilledButton(
-              onPressed: _isSaving ? null : _save,
-              style: FilledButton.styleFrom(
-                backgroundColor: HomeColors.teal,
-                minimumSize: const Size.fromHeight(48),
-                shape: RoundedRectangleBorder(
+                border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
+                contentPadding: const EdgeInsets.all(14),
               ),
-              child: _isSaving
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('创建', style: TextStyle(fontSize: 16)),
             ),
-          ),
-        ],
-      ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _ageController,
+              keyboardType: TextInputType.number,
+              decoration: InputDecoration(
+                labelText: '年龄',
+                hintText: '选填',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.all(14),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _birthdayController,
+              keyboardType: TextInputType.datetime,
+              decoration: InputDecoration(
+                labelText: '生日',
+                hintText: 'YYYY-MM-DD，选填',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.all(14),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _locationController,
+              decoration: InputDecoration(
+                labelText: '地址/区域',
+                hintText: '如：海淀五路居、国贸',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                contentPadding: const EdgeInsets.all(14),
+              ),
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                const Text(
+                  '性别：',
+                  style: TextStyle(color: HomeColors.muted, fontSize: 14),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('男'),
+                  selected: _gender == 'male',
+                  onSelected: (_) => setState(() => _gender = 'male'),
+                ),
+                const SizedBox(width: 8),
+                ChoiceChip(
+                  label: const Text('女'),
+                  selected: _gender == 'female',
+                  onSelected: (_) => setState(() => _gender = 'female'),
+                ),
+                const SizedBox(width: 8),
+                if (_gender != null)
+                  GestureDetector(
+                    onTap: () => setState(() => _gender = null),
+                    child: const Text(
+                      '清除',
+                      style: TextStyle(fontSize: 12, color: HomeColors.muted),
+                    ),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: _isSaving ? null : _save,
+                style: FilledButton.styleFrom(
+                  backgroundColor: HomeColors.teal,
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        height: 20,
+                        width: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : const Text('创建', style: TextStyle(fontSize: 16)),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -772,8 +806,18 @@ class RecentCustomerList extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: CustomerRowShell(
-              onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customer.id))),
-              leading: CustomerAvatar(name: customer.name, radius: 19),
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => CustomerDetailPage(),
+                  settings: RouteSettings(arguments: customer.id),
+                ),
+              ),
+              leading: CustomerAvatar(
+                avatarUrl: customer.avatar,
+                name: customer.name,
+                radius: 19,
+              ),
               title: customer.name,
               subtitle: _formatLastContact(customer.updatedAt),
               trailing: StatusBadge(summaryStatus: customer.summaryStatus),
@@ -919,8 +963,11 @@ class IndustryGuideBanner extends StatelessWidget {
                   color: const Color(0xFFE7F5F2),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Icon(Icons.lightbulb_outline_rounded,
-                    color: HomeColors.teal, size: 20),
+                child: const Icon(
+                  Icons.lightbulb_outline_rounded,
+                  color: HomeColors.teal,
+                  size: 20,
+                ),
               ),
               const SizedBox(width: 10),
               Expanded(
@@ -959,7 +1006,10 @@ class StatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (label, color) = _statusInfo(summaryStatus);
+    final info = _statusInfo(summaryStatus);
+    if (info == null) return const SizedBox.shrink();
+
+    final (label, color) = info;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -977,18 +1027,14 @@ class StatusBadge extends StatelessWidget {
     );
   }
 
-  (String, Color) _statusInfo(String? status) {
+  (String, Color)? _statusInfo(String? status) {
     switch (status) {
-      case 'ready':
-        return ('有画像', HomeColors.teal);
-      case 'stale':
-        return ('待更新', HomeColors.amber);
       case 'updating':
         return ('生成中', HomeColors.navy);
       case 'failed':
         return ('需关注', const Color(0xFFDC2626));
       default:
-        return ('无画像', HomeColors.muted);
+        return null;
     }
   }
 }
@@ -1039,11 +1085,7 @@ class SummaryStatsBar extends StatelessWidget {
   }
 
   Widget _divider() {
-    return Container(
-      width: 1,
-      height: 28,
-      color: HomeColors.border,
-    );
+    return Container(width: 1, height: 28, color: HomeColors.border);
   }
 }
 
@@ -1081,10 +1123,7 @@ class _StatItem extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 label,
-                style: const TextStyle(
-                  color: HomeColors.muted,
-                  fontSize: 11,
-                ),
+                style: const TextStyle(color: HomeColors.muted, fontSize: 11),
               ),
             ],
           ),
@@ -1110,11 +1149,22 @@ class OnboardingFlowSteps extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Expanded(child: _step(Icons.mic_none_outlined, '记录', '语音/文字/图片', '记一次沟通')),
+          Expanded(
+            child: _step(Icons.mic_none_outlined, '记录', '语音/文字/图片', '记一次沟通'),
+          ),
           _arrow(),
-          Expanded(child: _step(Icons.person_add_outlined, '归档', '创建客户', '挂到客户名下')),
+          Expanded(
+            child: _step(Icons.person_add_outlined, '归档', '创建客户', '挂到客户名下'),
+          ),
           _arrow(),
-          Expanded(child: _step(Icons.auto_awesome_outlined, 'AI 整理', '自动生成画像', '随时查看建议')),
+          Expanded(
+            child: _step(
+              Icons.auto_awesome_outlined,
+              'AI 整理',
+              '自动生成画像',
+              '随时查看建议',
+            ),
+          ),
         ],
       ),
     );
@@ -1134,10 +1184,23 @@ class OnboardingFlowSteps extends StatelessWidget {
           child: Icon(icon, color: HomeColors.teal, size: 22),
         ),
         const SizedBox(height: 8),
-        Text(title, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: HomeColors.ink)),
+        Text(
+          title,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.w700,
+            color: HomeColors.ink,
+          ),
+        ),
         const SizedBox(height: 4),
-        Text(desc1, style: const TextStyle(fontSize: 11, color: HomeColors.muted)),
-        Text(desc2, style: const TextStyle(fontSize: 11, color: HomeColors.muted)),
+        Text(
+          desc1,
+          style: const TextStyle(fontSize: 11, color: HomeColors.muted),
+        ),
+        Text(
+          desc2,
+          style: const TextStyle(fontSize: 11, color: HomeColors.muted),
+        ),
       ],
     );
   }
@@ -1145,7 +1208,11 @@ class OnboardingFlowSteps extends StatelessWidget {
   Widget _arrow() {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 2),
-      child: Icon(Icons.chevron_right_rounded, color: HomeColors.border, size: 20),
+      child: Icon(
+        Icons.chevron_right_rounded,
+        color: HomeColors.border,
+        size: 20,
+      ),
     );
   }
 }
@@ -1168,7 +1235,11 @@ class IndustryQuickTip extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.lightbulb_outline_rounded, color: HomeColors.navy, size: 18),
+          const Icon(
+            Icons.lightbulb_outline_rounded,
+            color: HomeColors.navy,
+            size: 18,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(

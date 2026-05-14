@@ -6,6 +6,7 @@ import '../models/models.dart';
 import '../services/api.dart';
 import '../services/auth_session.dart';
 import '../services/chat_storage.dart';
+import '../widgets/image_preview.dart';
 import 'customer_detail_page.dart';
 
 /// AI 全局业务问答页 (P5 阶段)
@@ -796,13 +797,18 @@ class _AIChatPageState extends State<AIChatPage> {
       ),
       child: Row(
         children: [
-          ClipRRect(
+          Material(
+            color: Colors.transparent,
             borderRadius: BorderRadius.circular(10),
-            child: Image.file(
-              File(image.path),
-              width: previewSize,
-              height: previewSize,
-              fit: BoxFit.cover,
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: () => showLocalImagePreview(context, image),
+              child: Image.file(
+                File(image.path),
+                width: previewSize,
+                height: previewSize,
+                fit: BoxFit.cover,
+              ),
             ),
           ),
           const SizedBox(width: 12),

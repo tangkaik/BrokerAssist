@@ -9,6 +9,7 @@ import 'package:record/record.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../widgets/image_preview.dart';
 import 'create_customer_page.dart';
 import 'add_to_existing_page.dart';
 import 'api_settings_page.dart';
@@ -42,6 +43,8 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
 
   /// 文本编辑器
   final TextEditingController _textController = TextEditingController();
+  final FocusNode _textFocusNode = FocusNode();
+  bool _isTextFocused = false;
 
   /// 录音相关
   final AudioRecorder _audioRecorder = AudioRecorder();
@@ -70,6 +73,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
     super.initState();
     _initAudioPlayer();
     _textController.addListener(_onTextChanged);
+    _textFocusNode.addListener(_onTextFocusChanged);
 
     // 监听录音状态（调试）
     _recordStateSubscription = _audioRecorder.onStateChanged().listen((state) {
@@ -83,6 +87,8 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   @override
   void dispose() {
     _textController.removeListener(_onTextChanged);
+    _textFocusNode.removeListener(_onTextFocusChanged);
+    _textFocusNode.dispose();
     _textController.dispose();
     _audioRecorder.dispose();
     _audioPlayer.dispose();
@@ -90,6 +96,11 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
     _recordingTimer?.cancel();
     _recordStateSubscription?.cancel();
     super.dispose();
+  }
+
+  void _onTextFocusChanged() {
+    if (!mounted) return;
+    setState(() => _isTextFocused = _textFocusNode.hasFocus);
   }
 
   void _initAudioPlayer() {
@@ -578,37 +589,18 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final keyboardVisible = MediaQuery.viewInsetsOf(context).bottom > 0;
-            if (keyboardVisible) {
-              return SingleChildScrollView(
-                keyboardDismissBehavior:
-                    ScrollViewKeyboardDismissBehavior.onDrag,
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      _buildSelectedCustomerBanner(),
-                      SizedBox(
-                        height: 280,
-                        child: _buildTextArea(expanded: false),
-                      ),
-                      const SizedBox(height: 12),
-                      _buildBottomActions(),
-                    ],
-                  ),
-                ),
-              );
-            }
+            final compactInput = keyboardVisible || _isTextFocused;
 
             return Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildSelectedCustomerBanner(),
-                  _buildIntroCard(),
-                  const SizedBox(height: 14),
+                  if (!compactInput) ...[
+                    _buildSelectedCustomerBanner(),
+                    _buildIntroCard(),
+                    const SizedBox(height: 14),
+                  ],
                   Expanded(child: _buildTextArea(expanded: true)),
                   const SizedBox(height: 12),
                   _buildBottomActions(),
@@ -746,6 +738,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   Widget _buildRecordTextField({bool expanded = false}) {
     final field = TextField(
       controller: _textController,
+      focusNode: _textFocusNode,
       maxLines: null,
       minLines: expanded ? null : 6,
       expands: expanded,
@@ -771,6 +764,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
 
     return TextField(
       controller: _textController,
+      focusNode: _textFocusNode,
       maxLines: 10,
       minLines: 6,
       keyboardType: TextInputType.multiline,
@@ -798,37 +792,10 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
           separatorBuilder: (_, _) => const SizedBox(width: 8),
           itemBuilder: (context, index) {
             final image = _selectedImages[index];
-            return Stack(
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(
-                    File(image.path),
-                    width: 78,
-                    height: 78,
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                Positioned(
-                  top: 4,
-                  right: 4,
-                  child: GestureDetector(
-                    onTap: () => _removeImage(image),
-                    child: Container(
-                      decoration: const BoxDecoration(
-                        color: Colors.black54,
-                        shape: BoxShape.circle,
-                      ),
-                      padding: const EdgeInsets.all(2),
-                      child: const Icon(
-                        Icons.close,
-                        size: 15,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
+            return LocalImageTile(
+              image: image,
+              size: 78,
+              onRemove: () => _removeImage(image),
             );
           },
         ),
@@ -1258,12 +1225,11 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
             );
       if (!mounted) return;
       if (response.success) {
-        _clearAll();
+        _autoRefreshSummaryAndAdvice();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已保存到${widget.customerName ?? "客户"}')),
         );
-        // 后台刷新画像和建议
-        _autoRefreshSummaryAndAdvice();
+        Navigator.pop(context, true);
       } else {
         _showError(response.error?.message ?? '保存失败');
       }

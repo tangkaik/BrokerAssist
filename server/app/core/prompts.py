@@ -180,6 +180,7 @@ def assistant_intent_plan_system(industry_key: str | None = None) -> str:
 def app_help_qa(
     question: str,
     conversation_context: str = "无",
+    product_manual: str = "当前产品说明里还没有这部分信息。",
     industry_key: str | None = None,
 ) -> str:
     """产品用法问答 prompt（模板）。"""
@@ -187,6 +188,7 @@ def app_help_qa(
     return tmpl.format(
         question=question,
         conversation_context=conversation_context,
+        product_manual=product_manual,
         **_industry_format_args(industry_key),
     )
 

@@ -541,7 +541,10 @@ class _CustomerListPageState extends State<CustomerListPage> {
             );
           }
           final customer = _customers[index];
-          return _CustomerListItem(customer: customer);
+          return _CustomerListItem(
+            customer: customer,
+            onChanged: _loadCustomers,
+          );
         },
       ),
     );
@@ -551,8 +554,9 @@ class _CustomerListPageState extends State<CustomerListPage> {
 /// 客户列表项
 class _CustomerListItem extends StatelessWidget {
   final Customer customer;
+  final VoidCallback onChanged;
 
-  const _CustomerListItem({required this.customer});
+  const _CustomerListItem({required this.customer, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -607,8 +611,17 @@ class _CustomerListItem extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall,
             )
           : null,
-      onTap: () {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customer.id)));
+      onTap: () async {
+        final changed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CustomerDetailPage(),
+            settings: RouteSettings(arguments: customer.id),
+          ),
+        );
+        if (changed == true && context.mounted) {
+          onChanged();
+        }
       },
     );
   }

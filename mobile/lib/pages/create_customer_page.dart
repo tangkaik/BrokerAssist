@@ -3,6 +3,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../widgets/image_preview.dart';
 import 'customer_detail_page.dart';
 
 /// 创建新客户页
@@ -29,6 +30,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
   final _nameController = TextEditingController();
   String? _selectedGender;
   final _ageController = TextEditingController();
+  final _birthdayController = TextEditingController();
   final _locationController = TextEditingController();
   final List<String> _tags = [];
   final _tagController = TextEditingController();
@@ -57,6 +59,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
     _contentController.dispose();
     _nameController.dispose();
     _ageController.dispose();
+    _birthdayController.dispose();
     _locationController.dispose();
     _tagController.dispose();
     super.dispose();
@@ -100,6 +103,9 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
         name: _nameController.text.trim(),
         gender: _selectedGender,
         age: age,
+        birthday: _birthdayController.text.trim().isNotEmpty
+            ? _birthdayController.text.trim()
+            : null,
         location: _locationController.text.trim().isNotEmpty
             ? _locationController.text.trim()
             : null,
@@ -225,7 +231,13 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
     // 延迟跳转，确保 pop 完成
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customerId)));
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CustomerDetailPage(),
+            settings: RouteSettings(arguments: customerId),
+          ),
+        );
       }
     });
   }
@@ -261,6 +273,16 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
                 children: [
                   // 客户表单
                   _buildCustomerForm(),
+
+                  if (_selectedImages.isNotEmpty) ...[
+                    const SizedBox(height: 16),
+                    SelectedImagesPreview(
+                      images: _selectedImages,
+                      onRemove: (image) {
+                        setState(() => _selectedImages.remove(image));
+                      },
+                    ),
+                  ],
 
                   // 错误提示
                   if (_error != null)
@@ -361,7 +383,10 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
             // 性别
             Row(
               children: [
-                const Text('性别：', style: TextStyle(color: Colors.black54, fontSize: 14)),
+                const Text(
+                  '性别：',
+                  style: TextStyle(color: Colors.black54, fontSize: 14),
+                ),
                 const SizedBox(width: 8),
                 ChoiceChip(
                   label: const Text('男'),
@@ -378,7 +403,10 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
                 if (_selectedGender != null)
                   GestureDetector(
                     onTap: () => setState(() => _selectedGender = null),
-                    child: const Text('清除', style: TextStyle(fontSize: 12, color: Colors.black54)),
+                    child: const Text(
+                      '清除',
+                      style: TextStyle(fontSize: 12, color: Colors.black54),
+                    ),
                   ),
               ],
             ),
@@ -390,6 +418,20 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
               decoration: InputDecoration(
                 labelText: '年龄',
                 hintText: '输入数字',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            TextFormField(
+              controller: _birthdayController,
+              keyboardType: TextInputType.datetime,
+              decoration: InputDecoration(
+                labelText: '生日',
+                hintText: 'YYYY-MM-DD',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                 ),
