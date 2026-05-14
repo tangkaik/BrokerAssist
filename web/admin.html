@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BrokerAssist - 管理后台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="admin-shell">
+      <header class="topbar">
+        <div class="topbar-brand">BrokerAssist <span class="admin-badge">管理后台</span></div>
+        <div class="topbar-actions">
+          <span id="admin-user-name" class="muted"></span>
+          <a href="./index.html" class="button button-ghost">返回前台</a>
+          <button id="admin-logout" type="button" class="button button-ghost">退出</button>
+        </div>
+      </header>
+
+      <div class="admin-layout">
+        <nav class="admin-nav" id="admin-nav">
+          <button class="admin-nav-item active" data-tab="dashboard">仪表盘</button>
+          <button class="admin-nav-item" data-tab="users">用户管理</button>
+          <button class="admin-nav-item" data-tab="config">系统配置</button>
+          <button class="admin-nav-item" data-tab="industries">行业管理</button>
+          <button class="admin-nav-item" data-tab="prompts">提示词管理</button>
+        </nav>
+
+        <main class="admin-content" id="admin-content">
+          <div id="tab-dashboard" class="admin-tab"></div>
+          <div id="tab-users" class="admin-tab hidden"></div>
+          <div id="tab-config" class="admin-tab hidden"></div>
+          <div id="tab-industries" class="admin-tab hidden"></div>
+          <div id="tab-prompts" class="admin-tab hidden"></div>
+        </main>
+      </div>
+
+      <div id="admin-toast" class="toast hidden"></div>
+    </div>
+
+    <dialog id="admin-dialog" class="dialog">
+      <div class="dialog-content">
+        <header class="dialog-header">
+          <h3 id="admin-dialog-title"></h3>
+          <button id="admin-dialog-close" type="button" class="icon-button">&times;</button>
+        </header>
+        <div id="admin-dialog-body"></div>
+      </div>
+    </dialog>
+
+    <script type="module" src="./src/admin/app.js"></script>
+  </body>
+</html>
