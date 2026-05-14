@@ -12,7 +12,7 @@ from typing import Any
 
 import yaml
 
-from app.core.industry_profiles import get_industry_profile
+from app.core.industry_profiles import get_industry_profile_sync as get_industry_profile
 
 
 def _load_prompts() -> dict[str, Any]:
