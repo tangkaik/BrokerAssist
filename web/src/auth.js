@@ -53,6 +53,11 @@ export function renderAuthState() {
   els.authScreen.classList.toggle("hidden", loggedIn);
   els.authStatus.classList.toggle("hidden", !loggedIn);
 
+  const adminLink = document.getElementById("admin-link");
+  if (adminLink) {
+    adminLink.classList.toggle("hidden", !(state.currentUser && state.currentUser.is_admin));
+  }
+
   if (loggedIn) {
     els.authUserName.textContent = state.currentUser.name || "未命名用户";
     els.authUserAccount.textContent = state.currentUser.account || "";
