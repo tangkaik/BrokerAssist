@@ -31,7 +31,7 @@ class AdminService:
 
         monthly_calls = await self.session.scalar(
             select(func.count()).select_from(text("analytics_events"))
-            .where(text("event_type LIKE 'ai_%'"))
+            .where(text("event_name LIKE 'ai_%'"))
             .where(text("created_at >= :start")).params(start=month_start)
         )
 
@@ -49,7 +49,7 @@ class AdminService:
             day_end = day_start + timedelta(days=1)
             daily_calls = await self.session.scalar(
                 select(func.count()).select_from(text("analytics_events"))
-                .where(text("event_type LIKE 'ai_%'"))
+                .where(text("event_name LIKE 'ai_%'"))
                 .where(text("created_at >= :start AND created_at < :end"))
                 .params(start=day_start, end=day_end)
             )
