@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>客记管理后台</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="admin-shell">
+      <header class="topbar admin-topbar">
+        <div>
+          <div class="topbar-brand">客记管理后台</div>
+          <p id="admin-status" class="muted compact">正在检查登录状态...</p>
+        </div>
+        <a class="button button-ghost" href="./index.html">返回工作台</a>
+      </header>
+
+      <main id="admin-app" class="admin-app hidden">
+        <nav class="admin-tabs" aria-label="管理后台导航">
+          <button class="admin-tab-button active" type="button" data-admin-tab="overview">用户概览</button>
+          <button class="admin-tab-button" type="button" data-admin-tab="maintenance">用户维护</button>
+          <button class="admin-tab-button" type="button" data-admin-tab="industries">行业配置</button>
+        </nav>
+
+        <section id="admin-tab-overview" class="admin-tab-panel"></section>
+        <section id="admin-tab-maintenance" class="admin-tab-panel hidden"></section>
+        <section id="admin-tab-industries" class="admin-tab-panel hidden"></section>
+      </main>
+
+      <section id="admin-blocked" class="panel admin-blocked">
+        <h1>管理后台</h1>
+        <p id="admin-blocked-message" class="muted">正在检查权限...</p>
+      </section>
+    </div>
+
+    <dialog id="admin-dialog" class="dialog">
+      <div class="dialog-form admin-dialog-form">
+        <div class="dialog-head">
+          <h3 id="admin-dialog-title"></h3>
+          <button id="admin-dialog-close" type="button" class="button button-ghost">关闭</button>
+        </div>
+        <div id="admin-dialog-body"></div>
+      </div>
+    </dialog>
+
+    <div id="admin-toast" class="toast hidden"></div>
+    <script type="module" src="./src/admin/app.js"></script>
+  </body>
+</html>

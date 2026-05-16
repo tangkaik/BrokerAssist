@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from app.core.industry_profiles import IndustryProfile, get_industry_profile_sync as get_industry_profile
+
 
 def _load_prompts() -> dict[str, Any]:
     """从 prompts.yaml 加载原始字典。"""
@@ -28,15 +30,43 @@ def get_prompts() -> dict[str, Any]:
 
 # ---- 客户摘要 ----
 
-def customer_summary(records_text: str) -> str:
+def _industry_format_args(
+    industry_key: str | None,
+    industry_profile: IndustryProfile | None = None,
+) -> dict[str, str]:
+    profile = industry_profile or get_industry_profile(industry_key)
+    return {
+        "industry_label": profile.label,
+        "industry_role": profile.role_name,
+        "summary_focus_text": profile.summary_focus_text,
+        "missing_info_text": profile.missing_info_text,
+        "advice_focus_text": profile.advice_focus,
+        "forbidden_guidance_text": profile.forbidden_guidance_text,
+        "query_examples_text": profile.query_examples_text,
+    }
+
+
+def customer_summary(
+    records_text: str,
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
     """生成客户摘要的 prompt（模板）。"""
     tmpl = get_prompts()["customer_summary"]
-    return tmpl.format(records_text=records_text)
+    return tmpl.format(
+        records_text=records_text,
+        **_industry_format_args(industry_key, industry_profile),
+    )
 
 
-def customer_summary_system() -> str:
+def customer_summary_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
     """客户摘要的 system prompt。"""
-    return get_prompts()["customer_summary_system"]
+    return get_prompts()["customer_summary_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
 
 
 # ---- 客户对话 ----
@@ -45,6 +75,8 @@ def customer_chat(
     customer_summary_text: str,
     recent_records_text: str,
     question: str,
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
 ) -> str:
     """客户对话的 prompt（模板）。"""
     tmpl = get_prompts()["customer_chat"]
@@ -52,12 +84,18 @@ def customer_chat(
         customer_summary_text=customer_summary_text,
         recent_records_text=recent_records_text,
         question=question,
+        **_industry_format_args(industry_key, industry_profile),
     )
 
 
-def customer_chat_system() -> str:
+def customer_chat_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
     """客户对话的 system prompt。"""
-    return get_prompts()["customer_chat_system"]
+    return get_prompts()["customer_chat_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
 
 
 # ---- 拜访建议 ----
@@ -65,18 +103,26 @@ def customer_chat_system() -> str:
 def advice(
     customer_summary_text: str,
     recent_records_text: str,
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
 ) -> str:
     """拜访建议的 prompt（模板）。"""
     tmpl = get_prompts()["advice"]
     return tmpl.format(
         customer_summary_text=customer_summary_text,
         recent_records_text=recent_records_text,
+        **_industry_format_args(industry_key, industry_profile),
     )
 
 
-def advice_system() -> str:
+def advice_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
     """拜访建议的 system prompt。"""
-    return get_prompts()["advice_system"]
+    return get_prompts()["advice_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
 
 
 # ---- 地点分类 ----
@@ -118,29 +164,135 @@ def location_classify_system() -> str:
     return get_prompts()["location_classify_system"]
 
 
-# ---- 全局 AI 问答 ----
-
-def global_qa(
-    customer_context_text: str,
+def customer_query_plan(
     question: str,
-    today_date: str,
-    stale_date: str,
-    customer_count: int,
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
 ) -> str:
-    """全局 AI 问答的 prompt（模板）。"""
-    tmpl = get_prompts()["global_qa"]
+    """客户查询规划 prompt（模板）。"""
+    tmpl = get_prompts()["customer_query_plan"]
     return tmpl.format(
-        customer_context_text=customer_context_text,
         question=question,
-        today_date=today_date,
-        stale_date=stale_date,
-        _customer_count=customer_count,
+        **_industry_format_args(industry_key, industry_profile),
     )
 
 
-def global_qa_system() -> str:
-    """全局 AI 问答的 system prompt。"""
-    return get_prompts()["global_qa_system"]
+def customer_query_plan_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """客户查询规划 system prompt。"""
+    return get_prompts()["customer_query_plan_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
+
+
+def assistant_intent_plan(
+    question: str,
+    conversation_context: str = "无",
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """AI 助手意图规划 prompt（模板）。"""
+    tmpl = get_prompts()["assistant_intent_plan"]
+    return tmpl.format(
+        question=question,
+        conversation_context=conversation_context,
+        **_industry_format_args(industry_key, industry_profile),
+    )
+
+
+def assistant_intent_plan_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """AI 助手意图规划 system prompt。"""
+    return get_prompts()["assistant_intent_plan_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
+
+
+def app_help_qa(
+    question: str,
+    conversation_context: str = "无",
+    product_manual: str = "当前产品说明里还没有这部分信息。",
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """产品用法问答 prompt（模板）。"""
+    tmpl = get_prompts()["app_help_qa"]
+    return tmpl.format(
+        question=question,
+        conversation_context=conversation_context,
+        product_manual=product_manual,
+        **_industry_format_args(industry_key, industry_profile),
+    )
+
+
+def app_help_qa_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """产品用法问答 system prompt。"""
+    return get_prompts()["app_help_qa_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
+
+
+def business_assist_plan(
+    question: str,
+    conversation_context: str = "无",
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """单客户业务助手任务规划 prompt（模板）。"""
+    tmpl = get_prompts()["business_assist_plan"]
+    return tmpl.format(
+        question=question,
+        conversation_context=conversation_context,
+        **_industry_format_args(industry_key, industry_profile),
+    )
+
+
+def business_assist_plan_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """单客户业务助手任务规划 system prompt。"""
+    return get_prompts()["business_assist_plan_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
+
+
+def business_assist(
+    question: str,
+    customer_context_text: str = "无",
+    conversation_context: str = "无",
+    task_type: str = "general",
+    task_instructions: str = "",
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """单客户业务辅助 prompt（模板）。"""
+    tmpl = get_prompts()["business_assist"]
+    return tmpl.format(
+        question=question,
+        customer_context_text=customer_context_text,
+        conversation_context=conversation_context,
+        task_type=task_type,
+        task_instructions=task_instructions,
+        **_industry_format_args(industry_key, industry_profile),
+    )
+
+
+def business_assist_system(
+    industry_key: str | None = None,
+    industry_profile: IndustryProfile | None = None,
+) -> str:
+    """通用业务辅助 system prompt。"""
+    return get_prompts()["business_assist_system"].format(
+        **_industry_format_args(industry_key, industry_profile)
+    )
 
 
 # ---- 图片分析 ----

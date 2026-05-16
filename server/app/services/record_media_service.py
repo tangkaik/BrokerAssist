@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.models.record import Record
 from app.schemas.record import RecordImageItem, RecordItem
 from app.services.record_image_analysis_service import RecordImageAnalysisService
@@ -34,12 +36,14 @@ class RecordMediaService:
         customer_id: str,
         record_id: str,
         files: list[tuple[str, bytes, str | None]],
+        session: AsyncSession | None = None,
     ) -> list[dict]:
         return await self.image_store.save_images(
             user_id=user_id,
             customer_id=customer_id,
             record_id=record_id,
             files=files,
+            session=session,
         )
 
     async def replace_images(
@@ -50,6 +54,7 @@ class RecordMediaService:
         record_id: str,
         keep_urls: list[str],
         new_files: list[tuple[str, bytes, str | None]],
+        session: AsyncSession | None = None,
     ) -> list[dict]:
         return await self.image_store.replace_record_images(
             user_id=user_id,
@@ -57,6 +62,7 @@ class RecordMediaService:
             record_id=record_id,
             keep_urls=keep_urls,
             new_files=new_files,
+            session=session,
         )
 
     async def delete_record_assets(self, record_id: str) -> None:

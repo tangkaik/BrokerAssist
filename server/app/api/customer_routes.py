@@ -14,8 +14,13 @@
 """
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from datetime import datetime
+from urllib.parse import quote
+
+from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
+from io import BytesIO
 
 from app.core.dependencies import get_db, get_current_user_id
 from app.schemas.customer import (
@@ -27,9 +32,10 @@ from app.schemas.customer import (
     CustomerChatRequest,
     CustomerChatResponse,
     AdviceGenerateResponse,
+    CustomerImportResponse,
 )
 from app.services.customer_service import CustomerService
-from app.utils.response import success_response, not_found_error
+from app.utils.response import error_response, success_response, not_found_error
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
@@ -88,14 +94,11 @@ async def get_customer_list(
     sort_order: Optional[str] = Query("desc", description="排序方向（asc, desc）"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    summary_status: Optional[str] = Query(None, description="画像状态过滤，逗号分隔，如 stale,failed"),
+    stale_contact: bool = Query(False, description="只返回超期未联系客户"),
     user_id: str = Depends(get_current_user_id),
     service: CustomerService = Depends(get_customer_service),
 ):
-    """
-    获取客户列表
-    
-    返回当前用户的所有未删除客户，支持按姓名模糊搜索和多种排序方式
-    """
     result = await service.get_customer_list(
         user_id=user_id,
         keyword=keyword,
@@ -103,9 +106,87 @@ async def get_customer_list(
         sort_order=sort_order,
         page=page,
         page_size=page_size,
+        summary_status=summary_status,
+        stale_contact=stale_contact,
     )
     
     return success_response(data=result)
+
+
+@router.get(
+    "/summary-stats",
+    summary="客户摘要统计",
+    description="返回待更新画像数、超期未联系客户数、客户总数",
+    response_description="摘要统计数据",
+)
+async def get_summary_stats(
+    user_id: str = Depends(get_current_user_id),
+    service: CustomerService = Depends(get_customer_service),
+):
+    result = await service.get_summary_stats(user_id)
+    return success_response(data=result)
+
+
+@router.get(
+    "/export",
+    summary="导出客户 Excel",
+    description="导出当前登录用户的全部客户资料为 xlsx 文件",
+)
+async def export_customers(
+    user_id: str = Depends(get_current_user_id),
+    service: CustomerService = Depends(get_customer_service),
+):
+    content = await service.export_customers_excel(user_id)
+    filename = f"客户导出_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    encoded_filename = quote(filename)
+    return StreamingResponse(
+        BytesIO(content),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": (
+                f"attachment; filename=customers.xlsx; filename*=UTF-8''{encoded_filename}"
+            )
+        },
+    )
+
+
+@router.post(
+    "/import",
+    summary="导入客户 Excel",
+    description="上传 .xlsx 文件，批量创建当前登录用户的客户资料",
+    response_description="导入结果",
+)
+async def import_customers(
+    file: UploadFile = File(...),
+    user_id: str = Depends(get_current_user_id),
+    service: CustomerService = Depends(get_customer_service),
+):
+    filename = file.filename or ""
+    if not filename.lower().endswith(".xlsx"):
+        return error_response(
+            code="INVALID_EXCEL",
+            message="请上传 .xlsx 格式的 Excel 文件",
+            status_code=400,
+        )
+
+    content = await file.read()
+    if not content:
+        return error_response(
+            code="EMPTY_EXCEL",
+            message="Excel 文件为空",
+            status_code=400,
+        )
+
+    try:
+        result = await service.import_customers_excel(user_id, content)
+    except ValueError as exc:
+        return error_response(
+            code="INVALID_EXCEL",
+            message=str(exc),
+            status_code=400,
+        )
+
+    return success_response(data=CustomerImportResponse(**result))
 
 
 @router.get(
@@ -286,7 +367,7 @@ async def generate_advice(
 @router.get(
     "/{customer_id}/advice",
     summary="获取已保存的跟进建议",
-    description="读取该客户最近一次生成并保存的跟进建议（JSON 文件存储）",
+    description="读取该客户最近一次生成并保存的跟进建议",
     response_description="已保存的建议",
 )
 async def get_saved_advice(

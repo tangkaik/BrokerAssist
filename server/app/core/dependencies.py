@@ -11,6 +11,7 @@ from typing import AsyncGenerator
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.admin import ADMIN_ACCOUNT, is_administrator_account
 from app.core.config import settings
 from app.core.security import decode_access_token
 from app.db.session import async_session_factory
@@ -86,6 +87,18 @@ async def get_current_user_id(
 ) -> str:
     """获取当前登录用户 ID。"""
     return user.id
+
+
+async def require_administrator(
+    user: User = Depends(get_current_user),
+) -> User:
+    """固定 administrator 账号为第一版管理后台管理员。"""
+    if not is_administrator_account(user.account):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"只有 {ADMIN_ACCOUNT} 可以访问管理后台",
+        )
+    return user
 
 
 # 类型别名，用于路由函数的类型提示

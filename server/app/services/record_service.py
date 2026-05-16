@@ -163,6 +163,7 @@ class RecordService:
                 customer_id=customer_id,
                 record_id=record_id,
                 files=images,
+                session=self.session,
             )
 
         return record_id, None
@@ -309,6 +310,7 @@ class RecordService:
             record_id=record_id,
             keep_urls=keep_image_urls,
             new_files=new_images,
+            session=self.session,
         )
 
         await self.session.flush()

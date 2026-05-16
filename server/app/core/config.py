@@ -25,7 +25,7 @@ class Settings(BaseSettings):
     app_version: str = "0.1.0"
     debug: bool = False
     host: str = "0.0.0.0"
-    port: int = 8000
+    port: int = 8001
     
     # 数据库配置
     database_url: str = "postgresql+asyncpg://postgres:password@localhost:5432/brokerassist"
@@ -58,8 +58,8 @@ class Settings(BaseSettings):
     
     # 安全/MVP 配置
     default_user_id: str = "default-user"
-    default_test_account: str = "test@brokerassist.local"
-    default_test_password: str = "Test123456"
+    default_test_account: str = "t1"
+    default_test_password: str = "123"
     default_test_name: str = "测试账号"
     auth_secret_key: str = "brokerassist-dev-secret-change-me"
     auth_token_expire_days: int = 30

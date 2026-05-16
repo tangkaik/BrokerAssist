@@ -1,71 +1,81 @@
 """
-记录图片识别结果存储
+记录图片识别结果存储（已迁移到数据库）
 
-使用 JSON 文件维护 record_id + image_url -> 分析结果 的映射。
+使用 record_image_analyses 表管理分析结果。
 """
 from __future__ import annotations
 
-import json
 import asyncio
-from pathlib import Path
+import uuid
+from datetime import datetime, timezone
 from typing import Optional
+
+from sqlalchemy import select, delete
+from app.db.session import async_session_factory
+from app.models.record_image_analysis import RecordImageAnalysis
 
 
 _STORE_LOCK = asyncio.Lock()
 
 
 class RecordImageAnalysisStore:
+    """记录图片分析存储（数据库版）"""
+
     def __init__(self, store_path: Optional[Path] = None):
-        server_root = Path(__file__).resolve().parents[2]
-        self.store_path = store_path or server_root / "data" / "record_image_analysis.json"
-
-    def _ensure_file(self) -> None:
-        self.store_path.parent.mkdir(parents=True, exist_ok=True)
-        if not self.store_path.exists():
-            self.store_path.write_text("{}", encoding="utf-8")
-
-    def _read(self) -> dict:
-        self._ensure_file()
-        try:
-            content = self.store_path.read_text(encoding="utf-8").strip()
-            if not content:
-                return {}
-            data = json.loads(content)
-            return data if isinstance(data, dict) else {}
-        except (OSError, json.JSONDecodeError):
-            return {}
-
-    def _write(self, data: dict) -> None:
-        self._ensure_file()
-        temp_path = self.store_path.with_suffix(f"{self.store_path.suffix}.tmp")
-        temp_path.write_text(
-            json.dumps(data, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        temp_path.replace(self.store_path)
+        # store_path 保留参数兼容，不再使用
+        pass
 
     async def get_record_analysis_map(self, record_id: str) -> dict[str, dict]:
-        async with _STORE_LOCK:
-            data = await asyncio.to_thread(self._read)
-            record_data = data.get(record_id, {})
-            return record_data if isinstance(record_data, dict) else {}
+        async with async_session_factory() as session:
+            result = await session.execute(
+                select(RecordImageAnalysis).where(
+                    RecordImageAnalysis.record_id == record_id
+                )
+            )
+            analyses = result.scalars().all()
+            return {
+                a.image_url: {
+                    "answer": a.answer,
+                    "updated_at": a.updated_at.isoformat() if a.updated_at else None,
+                }
+                for a in analyses
+            }
 
     async def get_image_analysis(self, record_id: str, image_url: str) -> dict | None:
         return (await self.get_record_analysis_map(record_id)).get(image_url)
 
     async def save_image_analysis(self, record_id: str, image_url: str, payload: dict) -> None:
         async with _STORE_LOCK:
-            data = await asyncio.to_thread(self._read)
-            record_data = data.get(record_id)
-            if not isinstance(record_data, dict):
-                record_data = {}
-            record_data[image_url] = payload
-            data[record_id] = record_data
-            await asyncio.to_thread(self._write, data)
+            async with async_session_factory() as session:
+                # 查找已有记录
+                result = await session.execute(
+                    select(RecordImageAnalysis).where(
+                        RecordImageAnalysis.record_id == record_id,
+                        RecordImageAnalysis.image_url == image_url,
+                    )
+                )
+                existing = result.scalar_one_or_none()
+
+                if existing:
+                    existing.answer = payload.get("answer", "")
+                    existing.updated_at = datetime.now(timezone.utc)
+                else:
+                    analysis = RecordImageAnalysis(
+                        id=str(uuid.uuid4()),
+                        record_id=record_id,
+                        image_url=image_url,
+                        answer=payload.get("answer", ""),
+                    )
+                    session.add(analysis)
+
+                await session.commit()
 
     async def delete_record(self, record_id: str) -> None:
         async with _STORE_LOCK:
-            data = await asyncio.to_thread(self._read)
-            if record_id in data:
-                data.pop(record_id, None)
-                await asyncio.to_thread(self._write, data)
+            async with async_session_factory() as session:
+                await session.execute(
+                    delete(RecordImageAnalysis).where(
+                        RecordImageAnalysis.record_id == record_id
+                    )
+                )
+                await session.commit()

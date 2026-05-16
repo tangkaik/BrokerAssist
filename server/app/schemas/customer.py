@@ -3,7 +3,7 @@
 
 用于请求验证和响应序列化
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, List
 
 from pydantic import BaseModel, Field, field_validator
@@ -18,6 +18,8 @@ class CustomerBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="客户姓名")
     phone: Optional[str] = Field(None, max_length=50, description="客户电话")
     gender: Optional[str] = Field(None, max_length=20, description="客户性别")
+    age: Optional[int] = Field(None, ge=0, le=120, description="客户年龄")
+    birthday: Optional[date] = Field(None, description="客户生日")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
 
 
@@ -34,7 +36,9 @@ class CustomerCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="客户姓名")
     phone: Optional[str] = Field(None, max_length=50, description="客户电话")
     gender: Optional[str] = Field(None, max_length=20, description="客户性别")
-    location: Optional[str] = Field(None, max_length=255, description="客户地址")
+    age: Optional[int] = Field(None, ge=0, le=120, description="客户年龄")
+    birthday: Optional[date] = Field(None, description="客户生日")
+    location: Optional[str] = Field(None, max_length=255, description="客户主地址")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
 
     @field_validator("tags")
@@ -62,19 +66,24 @@ class CustomerIdResponse(BaseModel):
 class CustomerListItem(BaseModel):
     """
     客户列表项
-    
+
     用于 GET /api/v1/customers 列表返回
     """
     id: str = Field(..., description="客户ID")
     name: str = Field(..., description="客户姓名")
+    avatar: Optional[str] = Field(None, description="客户头像 URL")
     phone: Optional[str] = Field(None, description="客户电话")
+    gender: Optional[str] = Field(None, description="客户性别")
+    age: Optional[int] = Field(None, description="客户年龄")
+    birthday: Optional[date] = Field(None, description="客户生日")
     location_raw: Optional[str] = Field(None, description="原始地址")
     location_city: Optional[str] = Field(None, description="城市")
     location_district: Optional[str] = Field(None, description="区")
     location_subarea: Optional[str] = Field(None, description="片区")
     tags: List[str] = Field(default_factory=list, description="客户标签列表")
+    summary_status: str = Field("stale", description="画像状态")
     updated_at: datetime = Field(..., description="更新时间")
-    
+
     model_config = {"from_attributes": True}
 
 
@@ -86,8 +95,11 @@ class CustomerDetail(BaseModel):
     """
     id: str = Field(..., description="客户ID")
     name: str = Field(..., description="客户姓名")
+    avatar: Optional[str] = Field(None, description="客户头像 URL")
     phone: Optional[str] = Field(None, description="客户电话")
     gender: Optional[str] = Field(None, description="客户性别")
+    age: Optional[int] = Field(None, description="客户年龄")
+    birthday: Optional[date] = Field(None, description="客户生日")
     location_raw: Optional[str] = Field(None, description="原始地址")
     location_city: Optional[str] = Field(None, description="城市")
     location_district: Optional[str] = Field(None, description="区")
@@ -124,6 +136,8 @@ class CustomerUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     phone: Optional[str] = Field(None, max_length=50)
     gender: Optional[str] = Field(None, max_length=20)
+    age: Optional[int] = Field(None, ge=0, le=120)
+    birthday: Optional[date] = Field(None)
     location: Optional[str] = Field(None, max_length=255)
     tags: Optional[List[str]] = Field(None)
 
@@ -180,3 +194,24 @@ class AdviceGenerateResponse(BaseModel):
     customer_id: str = Field(..., description="客户ID")
     advice_text: str = Field(..., description="跟进建议")
     updated_at: Optional[datetime] = Field(None, description="建议保存时间")
+
+
+class CustomerImportErrorItem(BaseModel):
+    """客户导入中的单行错误或跳过原因。"""
+
+    row: int = Field(..., description="Excel 行号")
+    name: Optional[str] = Field(None, description="客户姓名")
+    reason: str = Field(..., description="原因")
+
+
+class CustomerImportResponse(BaseModel):
+    """客户 Excel 导入结果。"""
+
+    created: int = Field(0, description="成功创建数量")
+    skipped: int = Field(0, description="跳过数量")
+    failed: int = Field(0, description="失败数量")
+    total_rows: int = Field(0, description="读取到的数据行数量")
+    errors: List[CustomerImportErrorItem] = Field(
+        default_factory=list,
+        description="错误或跳过明细，最多返回前 50 条",
+    )

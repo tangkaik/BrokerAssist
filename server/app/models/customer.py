@@ -3,10 +3,10 @@
 
 定义客户数据的 ORM 映射
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional, List
 
-from sqlalchemy import String, DateTime, Text, func
+from sqlalchemy import Date, Integer, String, DateTime, Text, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -48,6 +48,12 @@ class Customer(Base):
         nullable=True,
         comment="客户电话"
     )
+
+    avatar: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="客户头像 URL"
+    )
     
     gender: Mapped[Optional[str]] = mapped_column(
         String(20),
@@ -55,11 +61,23 @@ class Customer(Base):
         comment="客户性别"
     )
 
-    # 客户地址（结构化）
+    age: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        comment="客户年龄"
+    )
+
+    birthday: Mapped[Optional[date]] = mapped_column(
+        Date,
+        nullable=True,
+        comment="客户生日"
+    )
+
+    # 客户主地址（结构化）。记录/拜访地点保存在 records.location_*。
     location_raw: Mapped[Optional[str]] = mapped_column(
         String(255),
         nullable=True,
-        comment="原始地址字符串"
+        comment="客户主地址原始字符串"
     )
     location_city: Mapped[Optional[str]] = mapped_column(
         String(50),
@@ -101,7 +119,20 @@ class Customer(Base):
         nullable=True,
         comment="AI生成的客户摘要"
     )
-    
+
+    # AI 生成的跟进建议
+    advice_text: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="AI 生成的跟进建议"
+    )
+
+    advice_updated_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        comment="建议更新时间"
+    )
+
     # 时间戳
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

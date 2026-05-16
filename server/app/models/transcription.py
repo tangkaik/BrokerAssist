@@ -2,7 +2,6 @@
 音频转写任务模型 (Transcription Model)
 
 管理音频文件上传和转写流程：
-- 上传音频到 Supabase Storage
 - 调用讯飞语音转写
 - 保存转写结果
 - 用户确认后生成正式 record
@@ -53,13 +52,13 @@ class Transcription(Base):
     file_name: Mapped[str] = mapped_column(
         String(255),
         nullable=False,
-        comment="安全文件名（用于 Storage）"
+        comment="安全文件名（用于转写任务）"
     )
     
     file_path: Mapped[str] = mapped_column(
         String(500),
         nullable=False,
-        comment="Storage 完整路径"
+        comment="原始音频路径（当前不保存，保留为空）"
     )
     
     file_size: Mapped[Optional[int]] = mapped_column(
