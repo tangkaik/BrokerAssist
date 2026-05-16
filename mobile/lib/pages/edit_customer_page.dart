@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../services/reminder_data_service.dart';
+import '../theme/brand_colors.dart';
 
 /// 编辑客户页
 class EditCustomerPage extends StatefulWidget {
@@ -135,6 +137,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
     });
 
     if (response.success) {
+      await ReminderDataService.refreshLocalNotificationSchedule();
       if (mounted) Navigator.of(context).pop(true);
     } else {
       setState(() {
@@ -345,7 +348,7 @@ class _EditCustomerPageState extends State<EditCustomerPage> {
                                   label: Text(tag),
                                   deleteIcon: const Icon(Icons.close, size: 18),
                                   onDeleted: () => _removeTag(tag),
-                                  backgroundColor: Colors.blue.shade50,
+                                  backgroundColor: BrandColors.primarySoft,
                                   side: BorderSide.none,
                                 );
                               }).toList(),

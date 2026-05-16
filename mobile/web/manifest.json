@@ -1,6 +1,6 @@
 {
-    "name": "broker_assist",
-    "short_name": "broker_assist",
+    "name": "客记",
+    "short_name": "客记",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

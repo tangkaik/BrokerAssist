@@ -6,8 +6,7 @@ from app.models.customer import Customer
 from app.models.record import Record
 from app.models.transcription import Transcription
 from app.models.analytics import AnalyticsEvent, AnalyticsBatch
-from app.models.config import Config
-from app.models.industry import Industry, IndustryPrompt
+from app.models.industry import Industry
 
 # 建立关系（避免循环导入）
 from sqlalchemy.orm import relationship

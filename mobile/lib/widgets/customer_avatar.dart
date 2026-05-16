@@ -59,7 +59,7 @@ class CustomerAvatar extends StatelessWidget {
   /// 根据姓名 hash 生成颜色
   static Color _colorFromName(String name) {
     final colors = [
-      const Color(0xFF2196F3), // 蓝
+      const Color(0xFF0F766E), // 墨绿
       const Color(0xFF4CAF50), // 绿
       const Color(0xFFFF9800), // 橙
       const Color(0xFF9C27B0), // 紫

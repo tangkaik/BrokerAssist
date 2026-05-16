@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 
+import '../theme/brand_colors.dart';
+
 /// 播放控制区域组件
 class PlaybackSection extends StatefulWidget {
   final String recordedPath;
@@ -101,7 +103,7 @@ class _PlaybackSectionState extends State<PlaybackSection> {
             icon: Icon(
               _isPlaying ? Icons.pause_circle_filled : Icons.play_circle_filled,
               size: 40,
-              color: Colors.blue.shade600,
+              color: BrandColors.primary,
             ),
           ),
           const SizedBox(width: 8),
@@ -119,7 +121,7 @@ class _PlaybackSectionState extends State<PlaybackSection> {
                     );
                     await _player.seek(position);
                   },
-                  activeColor: Colors.blue.shade600,
+                  activeColor: BrandColors.primary,
                   inactiveColor: Colors.grey.shade300,
                 ),
                 Padding(

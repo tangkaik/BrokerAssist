@@ -53,6 +53,18 @@ class ApiService {
     return _auth.updatePreferences(industryKey: industryKey);
   }
 
+  Future<ApiResponse<List<Map<String, dynamic>>>> getIndustries() async {
+    return _client.get(
+      '/industries',
+      fromJsonT: (data) {
+        final items = (data as Map<String, dynamic>)['items'] as List<dynamic>? ?? [];
+        return items
+            .whereType<Map<String, dynamic>>()
+            .toList(growable: false);
+      },
+    );
+  }
+
   Future<ApiResponse<PaginatedData<Customer>>> getCustomers({
     int page = 1,
     int pageSize = 20,

@@ -6,6 +6,8 @@ import '../models/models.dart';
 import '../services/api.dart';
 import '../services/auth_session.dart';
 import '../services/chat_storage.dart';
+import '../services/industry_settings.dart';
+import '../theme/brand_colors.dart';
 import '../widgets/image_preview.dart';
 import 'customer_detail_page.dart';
 
@@ -45,104 +47,26 @@ class _SuggestionGroup {
   });
 }
 
-const List<_SuggestionGroup> _realEstateSuggestionGroups = [
-  _SuggestionGroup(
-    key: 'query',
-    title: '查客户数据',
-    icon: Icons.manage_search,
-    variants: [
-      ['哪些客户两个月没联系了？', '列出预算敏感的客户', '住在海淀区、预算充足的客户有哪些？'],
-      ['最近提到学区的客户有哪些？', '列出看房意向强的客户', '预算在500万以内的客户有哪些？'],
-      ['哪些客户关注通勤和地铁？', '列出近期沟通过首付压力的客户', '有哪些客户适合本周优先跟进？'],
-    ],
-  ),
-  _SuggestionGroup(
-    key: 'assist',
-    title: '客户跟进助手',
-    icon: Icons.edit_note,
-    variants: [
-      ['给蔡凤霞写一段约看房微信', '总结张建国上次拜访，并给出这次建议', '明天见王女士，帮我准备会谈简报'],
-      ['给蔡凤霞写一段跟进首付顾虑的微信', '整理张建国的预算和区域偏好', '见王女士前要确认哪些问题？'],
-      ['给蔡凤霞写一段看房后的温和跟进微信', '张建国现在情况怎样，下一步怎么跟？', '王女士犹豫不决时怎么推进？'],
-    ],
-  ),
-  _SuggestionGroup(
-    key: 'help',
-    title: '问产品用法',
-    icon: Icons.help_outline,
-    variants: [
-      ['客户画像怎么生成？', '下一步建议在哪里看？', '怎样添加一次客户沟通记录？'],
-      ['怎么给客户添加标签？', '语音记录怎么确认到客户？', 'AI助手能查哪些客户条件？'],
-      ['行业选择后还能修改吗？', '客户列表怎么搜索拼音？', '图片记录可以识别什么？'],
-    ],
-  ),
-];
+IconData _suggestionIcon(String icon) {
+  return switch (icon) {
+    'manage_search' => Icons.manage_search,
+    'edit_note' => Icons.edit_note,
+    'help' => Icons.help_outline,
+    'image' => Icons.image_outlined,
+    _ => Icons.help_outline,
+  };
+}
 
-const List<_SuggestionGroup> _insuranceSuggestionGroups = [
-  _SuggestionGroup(
-    key: 'query',
-    title: '查客户数据',
-    icon: Icons.manage_search,
-    variants: [
-      ['哪些客户两个月没联系了？', '列出关注重疾险的客户', '有健康告知顾虑的客户有哪些？'],
-      ['列出预算敏感的客户', '哪些客户提到孩子保障？', '最近适合跟进保单配置的客户有哪些？'],
-      ['列出关注养老规划的客户', '哪些客户还没有明确预算？', '有哪些客户适合本周优先跟进？'],
-    ],
-  ),
-  _SuggestionGroup(
-    key: 'assist',
-    title: '客户跟进助手',
-    icon: Icons.edit_note,
-    variants: [
-      ['给蔡凤霞写一段聊保障缺口的微信', '总结张建国上次拜访，并给出这次建议', '明天见王女士，帮我准备会谈简报'],
-      ['给蔡凤霞写一段解释重疾险必要性的微信', '整理张建国的家庭责任和保障缺口', '见王女士前要确认哪些健康告知问题？'],
-      ['给蔡凤霞写一段保费压力异议处理话术', '张建国现在情况怎样，下一步怎么跟？', '王女士一直拖延决策怎么推进？'],
-    ],
-  ),
-  _SuggestionGroup(
-    key: 'help',
-    title: '问产品用法',
-    icon: Icons.help_outline,
-    variants: [
-      ['客户画像怎么生成？', '下一步建议在哪里看？', '怎样添加一次客户沟通记录？'],
-      ['怎么给客户添加标签？', '语音记录怎么确认到客户？', 'AI助手能查哪些客户条件？'],
-      ['行业选择后还能修改吗？', '客户列表怎么搜索拼音？', '图片记录可以识别什么？'],
-    ],
-  ),
-];
-
-const List<_SuggestionGroup> _genericSuggestionGroups = [
-  _SuggestionGroup(
-    key: 'query',
-    title: '查客户数据',
-    icon: Icons.manage_search,
-    variants: [
-      ['哪些客户两个月没联系了？', '列出预算敏感的客户', '有哪些客户适合本周优先跟进？'],
-      ['列出最近沟通频繁的客户', '哪些客户还没有明确需求？', '住在海淀区的客户有哪些？'],
-      ['列出女性客户', '哪些客户提到价格顾虑？', '有多少客户超过两个月没联系？'],
-    ],
-  ),
-  _SuggestionGroup(
-    key: 'assist',
-    title: '客户跟进助手',
-    icon: Icons.edit_note,
-    variants: [
-      ['给蔡凤霞写一段跟进微信', '总结张建国上次沟通，并给出这次建议', '明天见王女士，帮我准备会谈简报'],
-      ['给蔡凤霞写一段久未回复后的跟进微信', '整理张建国的需求和顾虑', '见王女士前要确认哪些问题？'],
-      ['给蔡凤霞写一段温和确认时间的微信', '张建国现在情况怎样，下一步怎么跟？', '王女士犹豫时怎么推进？'],
-    ],
-  ),
-  _SuggestionGroup(
-    key: 'help',
-    title: '问产品用法',
-    icon: Icons.help_outline,
-    variants: [
-      ['客户画像怎么生成？', '下一步建议在哪里看？', '怎样添加一次客户沟通记录？'],
-      ['怎么给客户添加标签？', '语音记录怎么确认到客户？', 'AI助手能查哪些客户条件？'],
-      ['行业选择后还能修改吗？', '客户列表怎么搜索拼音？', '图片记录可以识别什么？'],
-    ],
-  ),
-];
+_SuggestionGroup _suggestionGroupFromConfig(
+  IndustryAssistantSuggestionGroup group,
+) {
+  return _SuggestionGroup(
+    key: group.key,
+    title: group.title,
+    icon: _suggestionIcon(group.icon),
+    variants: group.variants,
+  );
+}
 
 class _AIChatPageState extends State<AIChatPage> {
   /// 消息列表
@@ -187,12 +111,9 @@ class _AIChatPageState extends State<AIChatPage> {
   static const int _maxContextMessages = 16; // 最近 8 轮，供后端多轮能力使用
 
   List<_SuggestionGroup> get _suggestionGroups {
-    final industryKey = AuthSession.currentUser?.industryKey ?? 'generic';
-    final baseGroups = switch (industryKey) {
-      'insurance' => _insuranceSuggestionGroups,
-      'real_estate' => _realEstateSuggestionGroups,
-      _ => _genericSuggestionGroups,
-    };
+    final baseGroups = IndustrySettings.current.assistantSuggestions
+        .map(_suggestionGroupFromConfig)
+        .toList(growable: false);
     if (_suggestionCustomers.isEmpty) {
       return baseGroups.map((group) {
         if (group.key != 'assist') return group;
@@ -201,7 +122,7 @@ class _AIChatPageState extends State<AIChatPage> {
     }
     return baseGroups.map((group) {
       if (group.key != 'assist') return group;
-      return _dynamicCustomerAssistGroup(group, industryKey);
+      return _dynamicCustomerAssistGroup(group);
     }).toList();
   }
 
@@ -218,10 +139,7 @@ class _AIChatPageState extends State<AIChatPage> {
     );
   }
 
-  _SuggestionGroup _dynamicCustomerAssistGroup(
-    _SuggestionGroup baseGroup,
-    String industryKey,
-  ) {
+  _SuggestionGroup _dynamicCustomerAssistGroup(_SuggestionGroup baseGroup) {
     final names = _suggestionCustomers
         .map((customer) => customer.name.trim())
         .where((name) => name.isNotEmpty)
@@ -231,29 +149,22 @@ class _AIChatPageState extends State<AIChatPage> {
     final second = nameAt(names.length > 1 ? 1 : 0);
     final third = nameAt(names.length > 2 ? 2 : names.length - 1);
 
-    final variants = switch (industryKey) {
-      'insurance' => [
-          ['给$first写一段聊保障缺口的微信', '总结$second上次拜访，并给出这次建议', '明天见$third，帮我准备会谈简报'],
-          ['给$first写一段解释重疾险必要性的微信', '整理$second的家庭责任和保障缺口', '见$third前要确认哪些健康告知问题？'],
-          ['给$first写一段保费压力异议处理话术', '$second现在情况怎样，下一步怎么跟？', '$third一直拖延决策怎么推进？'],
-        ],
-      'real_estate' => [
-          ['给$first写一段约看房微信', '总结$second上次拜访，并给出这次建议', '明天见$third，帮我准备会谈简报'],
-          ['给$first写一段跟进首付顾虑的微信', '整理$second的预算和区域偏好', '见$third前要确认哪些问题？'],
-          ['给$first写一段看房后的温和跟进微信', '$second现在情况怎样，下一步怎么跟？', '$third犹豫不决时怎么推进？'],
-        ],
-      _ => [
-          ['给$first写一段跟进微信', '总结$second上次沟通，并给出这次建议', '明天见$third，帮我准备会谈简报'],
-          ['给$first写一段久未回复后的跟进微信', '整理$second的需求和顾虑', '见$third前要确认哪些问题？'],
-          ['给$first写一段温和确认时间的微信', '$second现在情况怎样，下一步怎么跟？', '$third犹豫时怎么推进？'],
-        ],
-    };
-
     return _SuggestionGroup(
       key: baseGroup.key,
       title: baseGroup.title,
       icon: baseGroup.icon,
-      variants: variants,
+      variants: baseGroup.variants
+          .map(
+            (row) => row
+                .map(
+                  (text) => text
+                      .replaceAll('{first}', first)
+                      .replaceAll('{second}', second)
+                      .replaceAll('{third}', third),
+                )
+                .toList(growable: false),
+          )
+          .toList(growable: false),
     );
   }
 
@@ -543,7 +454,7 @@ class _AIChatPageState extends State<AIChatPage> {
               Navigator.pop(dialogContext);
             },
             style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF2196F3),
+              backgroundColor: BrandColors.primary,
               foregroundColor: Colors.white,
             ),
             child: const Text('确定'),
@@ -561,7 +472,7 @@ class _AIChatPageState extends State<AIChatPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('AI 助手'),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: BrandColors.primary,
         foregroundColor: Colors.white,
         actions: [
           // 新对话按钮（有消息时才显示）
@@ -647,7 +558,7 @@ class _AIChatPageState extends State<AIChatPage> {
               IconButton(
                 onPressed: _isSending ? null : _pickImage,
                 icon: const Icon(Icons.photo_outlined),
-                color: const Color(0xFF2196F3),
+                color: BrandColors.primary,
                 tooltip: '上传图片',
               ),
               Expanded(
@@ -690,7 +601,7 @@ class _AIChatPageState extends State<AIChatPage> {
                   : IconButton(
                       onPressed: () => _sendMessage(_inputController.text),
                       icon: const Icon(Icons.send),
-                      color: const Color(0xFF2196F3),
+                      color: BrandColors.primary,
                       iconSize: 28,
                     ),
             ],
@@ -728,7 +639,7 @@ class _AIChatPageState extends State<AIChatPage> {
                 IconButton(
                   onPressed: _isSending ? null : _pickImage,
                   icon: const Icon(Icons.photo_outlined),
-                  color: const Color(0xFF2196F3),
+                  color: BrandColors.primary,
                   tooltip: '上传图片',
                 ),
                 Expanded(
@@ -771,7 +682,7 @@ class _AIChatPageState extends State<AIChatPage> {
                     : IconButton(
                         onPressed: () => _sendMessage(_inputController.text),
                         icon: const Icon(Icons.send),
-                        color: const Color(0xFF2196F3),
+                        color: BrandColors.primary,
                         iconSize: 24,
                       ),
               ],
@@ -791,9 +702,9 @@ class _AIChatPageState extends State<AIChatPage> {
       width: double.infinity,
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: const Color(0xFFF5F9FF),
+        color: BrandColors.primarySoft,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD7E8FF)),
+        border: Border.all(color: BrandColors.primary.withAlpha(55)),
       ),
       child: Row(
         children: [
@@ -978,7 +889,7 @@ class _AIChatPageState extends State<AIChatPage> {
                 icon: const Icon(Icons.refresh, size: 15),
                 label: const Text('换一组'),
                 style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF2196F3),
+                  foregroundColor: BrandColors.primary,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   visualDensity: VisualDensity.compact,
                   padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -997,9 +908,9 @@ class _AIChatPageState extends State<AIChatPage> {
             children: questions.map((q) {
               return ActionChip(
                 label: Text(q),
-                backgroundColor: const Color(0xFF2196F3).withAlpha(25),
+                backgroundColor: BrandColors.primary.withAlpha(25),
                 labelStyle: const TextStyle(
-                  color: Color(0xFF2196F3),
+                  color: BrandColors.primary,
                   fontSize: 14,
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 4),
@@ -1038,7 +949,7 @@ class _AIChatPageState extends State<AIChatPage> {
           maxWidth: MediaQuery.of(context).size.width * 0.75,
         ),
         decoration: BoxDecoration(
-          color: isUser ? const Color(0xFF2196F3) : Colors.grey[200],
+          color: isUser ? BrandColors.primary : Colors.grey[200],
           borderRadius: BorderRadius.circular(16),
         ),
         child: isUser
@@ -1111,7 +1022,7 @@ class _AIChatPageState extends State<AIChatPage> {
           backgroundColor: Colors.white.withAlpha(180),
         ),
         a: baseStyle.copyWith(
-          color: const Color(0xFF2196F3),
+          color: BrandColors.primary,
           decoration: TextDecoration.underline,
           fontWeight: FontWeight.w600,
         ),

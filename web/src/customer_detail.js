@@ -25,6 +25,24 @@ function buildMediaUrl(url) {
   return `${root}${url.startsWith("/") ? url : `/${url}`}`;
 }
 
+function getCustomerInitial(name) {
+  return String(name || "?").trim().slice(0, 1).toUpperCase() || "?";
+}
+
+function renderCustomerAvatar(target, customer) {
+  if (!target) return;
+
+  const name = customer?.name || "客户";
+  const avatar = customer?.avatar;
+  target.classList.toggle("has-image", Boolean(avatar));
+  if (avatar) {
+    target.innerHTML = `<img src="${buildMediaUrl(avatar)}" alt="${callbacks.escapeHtml(name)}头像" />`;
+    return;
+  }
+
+  target.textContent = getCustomerInitial(name);
+}
+
 function fileKey(file) {
   return `${file.name}:${file.size}:${file.lastModified}`;
 }
@@ -228,6 +246,7 @@ export function renderCustomerDetail() {
   const hasSummary = Boolean(detail.summary_text);
 
   els.customerName.textContent = detail.name;
+  renderCustomerAvatar(els.customerAvatar, detail);
   const locationInfo = detail.location_raw
     ? `${detail.location_city || ""}${detail.location_district || ""}${detail.location_subarea || ""} (${detail.location_raw})`
     : "地址未填写";
@@ -480,8 +499,10 @@ export async function createRecord(formData) {
     resetRecordDialog();
     callbacks.showToast(wasEditing ? "拜访记录已更新，正在更新客户画像和拜访建议..." : "拜访记录已添加，正在更新客户画像和拜访建议...");
     await loadCustomerDetail(customerId, { preserveScroll: true });
-    await refreshCustomerAiArtifacts({ silent: true });
-    callbacks.showToast("客户画像和拜访建议已更新");
+    const refreshed = await refreshCustomerAiArtifacts({ silent: true });
+    if (refreshed) {
+      callbacks.showToast("客户画像和拜访建议已更新");
+    }
   } finally {
     setRecordSaving(false);
   }
@@ -596,7 +617,7 @@ export async function generateAdvice(options = {}) {
 }
 
 export async function refreshCustomerAiArtifacts(options = {}) {
-  if (!state.selectedCustomerId) return;
+  if (!state.selectedCustomerId) return false;
   const silent = Boolean(options.silent);
 
   try {
@@ -605,12 +626,14 @@ export async function refreshCustomerAiArtifacts(options = {}) {
     if (!silent) {
       callbacks.showToast("客户画像和拜访建议已更新");
     }
+    return true;
   } catch (error) {
     if (!silent) {
       callbacks.showToast(error.message);
     } else {
       callbacks.showToast(`AI 自动更新失败：${error.message}`);
     }
+    return false;
   }
 }
 

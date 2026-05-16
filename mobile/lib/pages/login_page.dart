@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../theme/brand_colors.dart';
 import 'api_settings_page.dart';
 
 class LoginPage extends StatefulWidget {
@@ -91,6 +92,9 @@ class _LoginPageState extends State<LoginPage> {
     return InputDecoration(
       labelText: label,
       hintText: hint,
+      focusedBorder: const OutlineInputBorder(
+        borderSide: BorderSide(color: BrandColors.primary, width: 1.5),
+      ),
       border: const OutlineInputBorder(),
     );
   }
@@ -98,6 +102,7 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: BrandColors.background,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
@@ -105,6 +110,7 @@ class _LoginPageState extends State<LoginPage> {
             child: ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 420),
               child: Card(
+                color: Colors.white,
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
@@ -112,12 +118,12 @@ class _LoginPageState extends State<LoginPage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       const Text(
-                        'BrokerAssist',
+                        '客记',
                         style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _isRegisterMode ? '先创建一个账号' : '先登录，再进入你的客户工作台',
+                        '客户点滴记得住，关键跟进不耽误',
                         style: TextStyle(color: Colors.grey.shade700),
                       ),
                       const SizedBox(height: 20),
@@ -127,11 +133,15 @@ class _LoginPageState extends State<LoginPage> {
                           ChoiceChip(
                             label: const Text('登录'),
                             selected: !_isRegisterMode,
+                            selectedColor: BrandColors.primarySoft,
+                            checkmarkColor: BrandColors.primary,
                             onSelected: (_) => setState(() => _isRegisterMode = false),
                           ),
                           ChoiceChip(
                             label: const Text('注册'),
                             selected: _isRegisterMode,
+                            selectedColor: BrandColors.primarySoft,
+                            checkmarkColor: BrandColors.primary,
                             onSelected: (_) => setState(() => _isRegisterMode = true),
                           ),
                         ],
@@ -172,6 +182,10 @@ class _LoginPageState extends State<LoginPage> {
                                 width: double.infinity,
                                 child: ElevatedButton(
                                   onPressed: _isSubmitting ? null : _submitRegister,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: BrandColors.primary,
+                                    foregroundColor: Colors.white,
+                                  ),
                                   child: Text(_isSubmitting ? '正在创建...' : '创建账号并登录'),
                                 ),
                               ),
@@ -204,6 +218,10 @@ class _LoginPageState extends State<LoginPage> {
                                 width: double.infinity,
                                 child: ElevatedButton(
                                   onPressed: _isSubmitting ? null : _submitLogin,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: BrandColors.primary,
+                                    foregroundColor: Colors.white,
+                                  ),
                                   child: Text(_isSubmitting ? '正在登录...' : '登录'),
                                 ),
                               ),
@@ -215,6 +233,9 @@ class _LoginPageState extends State<LoginPage> {
                         alignment: Alignment.centerRight,
                         child: TextButton(
                           onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ApiSettingsPage())),
+                          style: TextButton.styleFrom(
+                            foregroundColor: BrandColors.primary,
+                          ),
                           child: const Text('API 设置'),
                         ),
                       ),

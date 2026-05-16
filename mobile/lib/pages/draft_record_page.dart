@@ -9,6 +9,8 @@ import 'package:record/record.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../services/customer_ai_refresh_service.dart';
+import '../services/reminder_data_service.dart';
 import '../widgets/image_preview.dart';
 import 'create_customer_page.dart';
 import 'add_to_existing_page.dart';
@@ -527,12 +529,7 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
   Future<void> _autoRefreshSummaryAndAdvice() async {
     final cid = widget.customerId;
     if (cid == null || cid.isEmpty) return;
-    try {
-      await apiService.generateSummary(cid);
-      await apiService.generateAdvice(cid);
-    } catch (_) {
-      // 静默失败
-    }
+    await customerAiRefreshService.refreshAfterRecordSaved(cid);
   }
 
   /// 清空所有内容
@@ -1225,7 +1222,9 @@ class _DraftRecordPageState extends State<DraftRecordPage> {
             );
       if (!mounted) return;
       if (response.success) {
-        _autoRefreshSummaryAndAdvice();
+        unawaited(ReminderDataService.refreshLocalNotificationSchedule());
+        await _autoRefreshSummaryAndAdvice();
+        if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已保存到${widget.customerName ?? "客户"}')),
         );

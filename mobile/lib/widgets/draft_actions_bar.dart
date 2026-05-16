@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/brand_colors.dart';
+
 /// 底部操作按钮区
 class DraftActionsBar extends StatelessWidget {
   final bool hasContent;
@@ -35,7 +37,7 @@ class DraftActionsBar extends StatelessWidget {
                     icon: const Icon(Icons.person_add, size: 20),
                     label: const Text('创建新客户'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue.shade600,
+                      backgroundColor: BrandColors.primary,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 14),
                       shape: RoundedRectangleBorder(

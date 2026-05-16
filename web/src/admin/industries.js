@@ -1,139 +1,307 @@
-import { buildUrl } from "../api.js";
-import { state } from "../state.js";
-import { showToast } from "./app.js";
+import { adminFetch } from "./api.js";
+import { adminEls, escapeHtml, formatDate, openDialog, closeDialog, showToast } from "./app.js";
 
-export async function loadIndustries() {
-  const container = document.getElementById("tab-industries");
+let industriesCache = [];
+
+function emptyPromptConfig() {
+  return {
+    summary_focus: [],
+    missing_info: [],
+    advice_focus: "",
+    forbidden_guidance: [],
+    query_examples: [],
+    assistant_suggestions: [],
+    app_display: {
+      workspace_label: "",
+      icon_key: "work",
+      quick_tip: "",
+    },
+    reminder_rules: {
+      birthday_enabled: true,
+      festival_enabled: true,
+      festival_group_title: "节日关怀",
+      festival_body_template: "{festival}还有 {days} 天，建议提前准备客户关怀。",
+      key_date_enabled: false,
+      key_date_keywords: [],
+      key_date_title_template: "{customer}关键日期提醒",
+      key_date_body_template: "{customer} 的关键日期还有 {days} 天，请及时跟进。",
+      key_date_group_title: "关键日期",
+      key_date_source_key: "key_date_detected",
+    },
+  };
+}
+
+function promptSectionFromConfig(config) {
+  return {
+    summary_focus: config.summary_focus || [],
+    missing_info: config.missing_info || [],
+    advice_focus: config.advice_focus || "",
+    forbidden_guidance: config.forbidden_guidance || [],
+    query_examples: config.query_examples || [],
+  };
+}
+
+function jsonText(value) {
+  return JSON.stringify(value, null, 2);
+}
+
+function parseJsonField(form, name, label) {
   try {
-    const res = await fetch(buildUrl("/admin/industries"), {
-      headers: { Authorization: `Bearer ${state.authToken}` },
-    });
-    const payload = await res.json();
-    if (!payload.success) throw new Error(payload.error?.message || "加载失败");
-    const industries = payload.data;
-
-    container.innerHTML = `
-      <div class="admin-toolbar">
-        <button id="add-industry-btn" class="button button-brand">新增行业</button>
-      </div>
-      <table class="data-table">
-        <thead>
-          <tr><th>标识 (key)</th><th>中文标签</th><th>角色名</th><th>状态</th><th>操作</th></tr>
-        </thead>
-        <tbody>
-          ${industries.map((ind) => `
-            <tr>
-              <td>${escapeHtml(ind.key)}</td>
-              <td>${escapeHtml(ind.label)}</td>
-              <td>${escapeHtml(ind.role_name)}</td>
-              <td>${ind.enabled
-                ? '<span class="badge badge-active">启用</span>'
-                : '<span class="badge badge-disabled">禁用</span>'}</td>
-              <td>
-                <button class="button button-small" data-edit="${ind.key}">编辑</button>
-                <button class="button button-small" data-toggle="${ind.key}" data-enabled="${ind.enabled}">
-                  ${ind.enabled ? "禁用" : "启用"}
-                </button>
-                ${ind.key !== "generic" ? `<button class="button button-small button-danger" data-delete="${ind.key}">删除</button>` : ""}
-              </td>
-            </tr>
-          `).join("")}
-        </tbody>
-      </table>
-    `;
-
-    document.getElementById("add-industry-btn").addEventListener("click", () => showIndustryDialog());
-    container.querySelectorAll("[data-edit]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const ind = industries.find((i) => i.key === btn.dataset.edit);
-        if (ind) showIndustryDialog(ind);
-      });
-    });
-    container.querySelectorAll("[data-toggle]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        const key = btn.dataset.toggle;
-        const enabled = btn.dataset.enabled === "true";
-        try {
-          const res = await fetch(buildUrl(`/admin/industries/${key}`), {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${state.authToken}`,
-            },
-            body: JSON.stringify({ enabled: !enabled }),
-          });
-          const payload = await res.json();
-          if (!payload.success) throw new Error(payload.error?.message || "操作失败");
-          showToast(enabled ? "已禁用" : "已启用");
-          loadIndustries();
-        } catch (e) { showToast(e.message); }
-      });
-    });
-    container.querySelectorAll("[data-delete]").forEach((btn) => {
-      btn.addEventListener("click", async () => {
-        if (!confirm(`确定删除行业 "${btn.dataset.delete}"？`)) return;
-        try {
-          const res = await fetch(buildUrl(`/admin/industries/${btn.dataset.delete}`), {
-            method: "DELETE",
-            headers: { Authorization: `Bearer ${state.authToken}` },
-          });
-          const payload = await res.json();
-          if (!payload.success) throw new Error(payload.error?.message || "删除失败");
-          showToast("已删除");
-          loadIndustries();
-        } catch (e) { showToast(e.message); }
-      });
-    });
-
-  } catch (e) {
-    container.innerHTML = `<p class="error">${e.message}</p>`;
+    return JSON.parse(form.elements[name].value || "null");
+  } catch (error) {
+    throw new Error(`${label} 不是合法 JSON：${error.message}`);
   }
 }
 
-function showIndustryDialog(existing) {
-  const dialog = document.getElementById("admin-dialog");
-  const isEdit = !!existing;
-  document.getElementById("admin-dialog-title").textContent = isEdit ? "编辑行业" : "新增行业";
-  document.getElementById("admin-dialog-body").innerHTML = `
-    <form id="industry-form">
-      <label>标识 (key): <input id="ind-key" type="text" value="${escapeHtml(existing?.key || "")}" ${isEdit ? "disabled" : "required"} /></label>
-      <label>中文标签: <input id="ind-label" type="text" value="${escapeHtml(existing?.label || "")}" required /></label>
-      <label>角色名: <input id="ind-role" type="text" value="${escapeHtml(existing?.role_name || "")}" required /></label>
-      <button type="submit" class="button button-brand">${isEdit ? "保存" : "创建"}</button>
+function renderJsonEditor(name, label, value, rows = 10) {
+  return `
+    <label>
+      <span>${label}</span>
+      <textarea name="${name}" class="admin-json-editor" rows="${rows}" spellcheck="false">${escapeHtml(jsonText(value))}</textarea>
+    </label>
+  `;
+}
+
+function renderIndustryTable(industries) {
+  return `
+    <div class="admin-table-wrap">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>标识</th>
+            <th>行业名称</th>
+            <th>AI 角色名</th>
+            <th>状态</th>
+            <th>更新时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${industries
+            .map(
+              (industry) => `
+                <tr>
+                  <td><code>${escapeHtml(industry.key)}</code></td>
+                  <td>${escapeHtml(industry.label)}</td>
+                  <td>${escapeHtml(industry.role_name)}</td>
+                  <td>${industry.enabled ? "启用" : "停用"}</td>
+                  <td>${formatDate(industry.updated_at)}</td>
+                  <td class="admin-row-actions">
+                    <button type="button" class="button button-secondary" data-edit-industry="${escapeHtml(industry.key)}">编辑</button>
+                    <button type="button" class="button button-ghost" data-clone-industry="${escapeHtml(industry.key)}">复制</button>
+                    <button
+                      type="button"
+                      class="button button-ghost"
+                      data-toggle-industry="${escapeHtml(industry.key)}"
+                      ${industry.key === "generic" ? "disabled" : ""}
+                    >${industry.enabled ? "停用" : "启用"}</button>
+                  </td>
+                </tr>
+              `,
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function getIndustryFormValues(form) {
+  const aiPrompt = parseJsonField(form, "ai_prompt_json", "AI 提示词配置");
+  const appDisplay = parseJsonField(form, "app_display_json", "App 展示配置");
+  const assistantSuggestions = parseJsonField(form, "assistant_suggestions_json", "AI 助手示例问题");
+  const reminderRules = parseJsonField(form, "reminder_rules_json", "提醒规则");
+  if (!aiPrompt || typeof aiPrompt !== "object" || Array.isArray(aiPrompt)) {
+    throw new Error("AI 提示词配置必须是 JSON 对象");
+  }
+  if (!appDisplay || typeof appDisplay !== "object" || Array.isArray(appDisplay)) {
+    throw new Error("App 展示配置必须是 JSON 对象");
+  }
+  if (!Array.isArray(assistantSuggestions)) {
+    throw new Error("AI 助手示例问题必须是 JSON 数组");
+  }
+  if (!reminderRules || typeof reminderRules !== "object" || Array.isArray(reminderRules)) {
+    throw new Error("提醒规则必须是 JSON 对象");
+  }
+  const promptConfig = {
+    ...emptyPromptConfig(),
+    ...aiPrompt,
+    app_display: appDisplay,
+    assistant_suggestions: assistantSuggestions,
+    reminder_rules: reminderRules,
+  };
+
+  return {
+    key: form.elements.key.value.trim().toLowerCase(),
+    label: form.elements.label.value.trim(),
+    role_name: form.elements.role_name.value.trim(),
+    enabled: form.elements.enabled.checked,
+    prompt_config: promptConfig,
+  };
+}
+
+function renderIndustryForm(industry, { isCreate = false } = {}) {
+  const config = { ...emptyPromptConfig(), ...(industry?.prompt_config || {}) };
+  config.app_display = { ...emptyPromptConfig().app_display, ...(config.app_display || {}) };
+  config.reminder_rules = { ...emptyPromptConfig().reminder_rules, ...(config.reminder_rules || {}) };
+  return `
+    <form id="admin-industry-form" class="admin-edit-form">
+      <label>
+        <span>行业标识</span>
+        <input name="key" value="${escapeHtml(industry?.key || "")}" ${isCreate ? "" : "readonly"} required />
+      </label>
+      <label>
+        <span>行业名称</span>
+        <input name="label" value="${escapeHtml(industry?.label || "")}" required />
+      </label>
+      <label>
+        <span>AI 角色名</span>
+        <input name="role_name" value="${escapeHtml(industry?.role_name || "")}" required />
+      </label>
+      <label class="admin-checkbox-row">
+        <input name="enabled" type="checkbox" ${industry?.enabled !== false ? "checked" : ""} ${industry?.key === "generic" ? "disabled" : ""} />
+        <span>启用这个行业</span>
+      </label>
+      <hr />
+      ${renderJsonEditor("ai_prompt_json", "AI 提示词配置 JSON", promptSectionFromConfig(config), 14)}
+      ${renderJsonEditor("app_display_json", "App 展示配置 JSON", config.app_display, 6)}
+      ${renderJsonEditor("assistant_suggestions_json", "AI 助手示例问题 JSON", config.assistant_suggestions || [], 16)}
+      ${renderJsonEditor("reminder_rules_json", "提醒规则 JSON", config.reminder_rules, 12)}
+      <div class="form-actions">
+        <button type="submit" class="button button-primary">保存</button>
+      </div>
     </form>
   `;
-  dialog.showModal();
-  document.getElementById("admin-dialog-close").onclick = () => dialog.close();
+}
 
-  document.getElementById("industry-form").addEventListener("submit", async (e) => {
-    e.preventDefault();
-    const body = {
-      key: document.getElementById("ind-key").value.trim(),
-      label: document.getElementById("ind-label").value.trim(),
-      role_name: document.getElementById("ind-role").value.trim(),
-    };
+function openIndustryEditor(industry, { isCreate = false } = {}) {
+  openDialog(isCreate ? "新增行业" : "编辑行业", renderIndustryForm(industry, { isCreate }));
+  const form = adminEls.dialogBody.querySelector("#admin-industry-form");
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
     try {
-      const url = isEdit ? buildUrl(`/admin/industries/${existing.key}`) : buildUrl("/admin/industries");
-      const method = isEdit ? "PUT" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${state.authToken}`,
-        },
-        body: JSON.stringify(body),
-      });
-      const payload = await res.json();
-      if (!payload.success) throw new Error(payload.error?.message || "操作失败");
-      showToast(isEdit ? "已保存" : "已创建");
-      dialog.close();
-      loadIndustries();
-    } catch (err) { showToast(err.message); }
+      const body = getIndustryFormValues(form);
+      if (!body.key || !body.label || !body.role_name) {
+        showToast("请填写行业标识、名称和 AI 角色名");
+        return;
+      }
+      if (body.key === "generic") {
+        body.enabled = true;
+      }
+      if (isCreate) {
+        await adminFetch("/admin/industries", { method: "POST", body });
+      } else {
+        await adminFetch(`/admin/industries/${industry.key}`, { method: "PUT", body });
+      }
+      closeDialog();
+      showToast("行业配置已保存");
+      await loadIndustryAdmin();
+    } catch (error) {
+      showToast(error.message);
+    }
   });
 }
 
-function escapeHtml(s) {
-  const div = document.createElement("div");
-  div.textContent = String(s ?? "");
-  return div.innerHTML;
+function openCloneDialog(source) {
+  openDialog(
+    "复制为新行业",
+    `
+      <form id="admin-clone-form" class="admin-edit-form">
+        <p class="muted">将复制「${escapeHtml(source.label)}」的全部行业配置 JSON。</p>
+        <label>
+          <span>新行业标识</span>
+          <input name="key" placeholder="例如 car_sales" required />
+        </label>
+        <label>
+          <span>新行业名称</span>
+          <input name="label" placeholder="例如 汽车销售" required />
+        </label>
+        <div class="form-actions">
+          <button type="submit" class="button button-primary">复制</button>
+        </div>
+      </form>
+    `,
+  );
+  adminEls.dialogBody.querySelector("#admin-clone-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    try {
+      await adminFetch(`/admin/industries/${source.key}/clone`, {
+        method: "POST",
+        body: {
+          key: form.elements.key.value.trim(),
+          label: form.elements.label.value.trim(),
+        },
+      });
+      closeDialog();
+      showToast("新行业已复制");
+      await loadIndustryAdmin();
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
+}
+
+function bindIndustryActions() {
+  adminEls.panels.industries.querySelector("#admin-create-industry").addEventListener("click", () => {
+    openIndustryEditor(
+      {
+        key: "",
+        label: "",
+        role_name: "",
+        enabled: true,
+        prompt_config: emptyPromptConfig(),
+      },
+      { isCreate: true },
+    );
+  });
+
+  adminEls.panels.industries.querySelectorAll("[data-edit-industry]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const industry = industriesCache.find((item) => item.key === button.dataset.editIndustry);
+      if (industry) openIndustryEditor(industry);
+    });
+  });
+
+  adminEls.panels.industries.querySelectorAll("[data-clone-industry]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const industry = industriesCache.find((item) => item.key === button.dataset.cloneIndustry);
+      if (industry) openCloneDialog(industry);
+    });
+  });
+
+  adminEls.panels.industries.querySelectorAll("[data-toggle-industry]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const industry = industriesCache.find((item) => item.key === button.dataset.toggleIndustry);
+      if (!industry) return;
+      try {
+        await adminFetch(`/admin/industries/${industry.key}/enabled`, {
+          method: "PUT",
+          body: { enabled: !industry.enabled },
+        });
+        showToast(industry.enabled ? "行业已停用" : "行业已启用");
+        await loadIndustryAdmin();
+      } catch (error) {
+        showToast(error.message);
+      }
+    });
+  });
+}
+
+export async function loadIndustryAdmin() {
+  const data = await adminFetch("/admin/industries");
+  industriesCache = data.items || [];
+  adminEls.panels.industries.innerHTML = `
+    <section class="content-card admin-section">
+      <div class="card-head">
+        <div>
+          <p class="card-kicker">Industries</p>
+          <h3>行业配置</h3>
+        </div>
+        <button id="admin-create-industry" type="button" class="button button-primary">新增行业</button>
+      </div>
+      ${renderIndustryTable(industriesCache)}
+    </section>
+  `;
+  bindIndustryActions();
 }

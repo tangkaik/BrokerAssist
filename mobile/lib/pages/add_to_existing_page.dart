@@ -6,6 +6,8 @@ import 'package:pinyin/pinyin.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../services/customer_ai_refresh_service.dart';
+import '../services/reminder_data_service.dart';
 import '../utils/customer_search.dart';
 import '../widgets/image_preview.dart';
 import 'customer_detail_page.dart';
@@ -197,10 +199,8 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
       });
 
       if (recordResponse.success) {
-        try {
-          await apiService.generateSummary(customerId);
-          await apiService.generateAdvice(customerId);
-        } catch (_) {}
+        await customerAiRefreshService.refreshAfterRecordSaved(customerId);
+        await ReminderDataService.refreshLocalNotificationSchedule();
         _navigateToCustomerDetail(customerId);
       } else {
         setState(() {
@@ -223,7 +223,13 @@ class _AddToExistingPageState extends State<AddToExistingPage> {
     // 延迟跳转，确保 pop 完成
     Future.delayed(const Duration(milliseconds: 100), () {
       if (mounted) {
-        Navigator.push(context, MaterialPageRoute(builder: (_) => CustomerDetailPage(), settings: RouteSettings(arguments: customerId)));
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => CustomerDetailPage(),
+            settings: RouteSettings(arguments: customerId),
+          ),
+        );
       }
     });
   }

@@ -26,10 +26,12 @@ from app.core.prompts import (
     customer_query_plan as _customer_query_plan_prompt,
     customer_query_plan_system as _customer_query_plan_system,
 )
+from app.core.industry_profiles import IndustryProfile
 from app.db.session import async_session_factory
 from app.models.customer import Customer
 from app.models.record import Record
 from app.models.user import User
+from app.services.industry_profile_service import get_industry_profile
 from app.services.vision_service import analyze_image_with_qwen
 
 STALE_CONTACT_MONTHS = 2
@@ -547,6 +549,10 @@ class AIService:
             user = await session.get(User, user_id)
             return getattr(user, "industry_key", None) or "generic"
 
+    async def _get_user_industry_profile(self, user_id: str, industry_key: str) -> IndustryProfile:
+        async with async_session_factory() as session:
+            return await get_industry_profile(session, industry_key)
+
     async def ask_image_question(
         self,
         question: str,
@@ -751,6 +757,7 @@ class AIService:
         self,
         question: str,
         industry_key: str,
+        industry_profile: IndustryProfile,
         recent_messages: list[dict] | None = None,
     ) -> dict | None:
         conversation_context = format_conversation_context(
@@ -764,8 +771,12 @@ class AIService:
                         question=question,
                         conversation_context=conversation_context,
                         industry_key=industry_key,
+                        industry_profile=industry_profile,
                     ),
-                    system_prompt=_assistant_intent_plan_system(industry_key=industry_key),
+                    system_prompt=_assistant_intent_plan_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()
@@ -782,6 +793,7 @@ class AIService:
         self,
         question: str,
         industry_key: str,
+        industry_profile: IndustryProfile,
         force: bool = False,
     ) -> dict | None:
         if not force and not looks_like_customer_query(question):
@@ -794,8 +806,12 @@ class AIService:
                     prompt=_customer_query_plan_prompt(
                         question=question,
                         industry_key=industry_key,
+                        industry_profile=industry_profile,
                     ),
-                    system_prompt=_customer_query_plan_system(industry_key=industry_key),
+                    system_prompt=_customer_query_plan_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()
@@ -827,6 +843,7 @@ class AIService:
         self,
         question: str,
         industry_key: str,
+        industry_profile: IndustryProfile,
         recent_messages: list[dict] | None = None,
     ) -> str:
         conversation_context = format_conversation_context(
@@ -841,8 +858,12 @@ class AIService:
                         conversation_context=conversation_context,
                         product_manual=load_product_manual(),
                         industry_key=industry_key,
+                        industry_profile=industry_profile,
                     ),
-                    system_prompt=_app_help_qa_system(industry_key=industry_key),
+                    system_prompt=_app_help_qa_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()
@@ -883,6 +904,7 @@ class AIService:
         self,
         question: str,
         industry_key: str,
+        industry_profile: IndustryProfile,
         recent_messages: list[dict] | None = None,
     ) -> dict | None:
         conversation_context = format_conversation_context(
@@ -896,8 +918,12 @@ class AIService:
                         question=question,
                         conversation_context=conversation_context,
                         industry_key=industry_key,
+                        industry_profile=industry_profile,
                     ),
-                    system_prompt=_business_assist_plan_system(industry_key=industry_key),
+                    system_prompt=_business_assist_plan_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()
@@ -1006,6 +1032,7 @@ class AIService:
         user_id: str,
         question: str,
         industry_key: str,
+        industry_profile: IndustryProfile,
         recent_messages: list[dict] | None = None,
         needs_customer_context: bool = False,
     ) -> str:
@@ -1016,6 +1043,7 @@ class AIService:
         business_plan = await self._plan_business_assist_task(
             question=question,
             industry_key=industry_key,
+            industry_profile=industry_profile,
             recent_messages=recent_messages,
         )
         if not business_plan or not business_plan.get("customer_name"):
@@ -1062,8 +1090,12 @@ class AIService:
                         task_type=task_type,
                         task_instructions=self._business_task_instructions(task_type),
                         industry_key=industry_key,
+                        industry_profile=industry_profile,
                     ),
-                    system_prompt=_business_assist_system(industry_key=industry_key),
+                    system_prompt=_business_assist_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()
@@ -1162,9 +1194,11 @@ class AIService:
         recent_messages: list[dict] | None = None,
     ) -> str:
         industry_key = await self._get_user_industry_key(user_id)
+        industry_profile = await self._get_user_industry_profile(user_id, industry_key)
         intent_plan = await self._plan_assistant_intent(
             question=question,
             industry_key=industry_key,
+            industry_profile=industry_profile,
             recent_messages=recent_messages,
         )
         if not intent_plan:
@@ -1176,7 +1210,12 @@ class AIService:
 
         action = intent_plan.get("action")
         if action == "customer_query":
-            planned_query = await self._plan_customer_query(question, industry_key, force=True)
+            planned_query = await self._plan_customer_query(
+                question,
+                industry_key,
+                industry_profile,
+                force=True,
+            )
             if planned_query:
                 return await self._execute_customer_query_plan(user_id, planned_query)
             return "我理解你想查客户数据，但这次没有形成可执行的查询条件。可以换成更明确的条件再问一次。"
@@ -1185,6 +1224,7 @@ class AIService:
             return await self._answer_app_help(
                 question=question,
                 industry_key=industry_key,
+                industry_profile=industry_profile,
                 recent_messages=recent_messages,
             )
 
@@ -1193,6 +1233,7 @@ class AIService:
                 user_id=user_id,
                 question=question,
                 industry_key=industry_key,
+                industry_profile=industry_profile,
                 recent_messages=recent_messages,
                 needs_customer_context=bool(intent_plan.get("needs_customer_context")),
             )

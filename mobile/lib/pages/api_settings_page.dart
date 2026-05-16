@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'analytics_export_page.dart';
 import '../services/api_config.dart';
+import '../theme/brand_colors.dart';
 
 /// API 地址设置页
 /// 
@@ -94,7 +95,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('API 地址设置'),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: BrandColors.primary,
         foregroundColor: Colors.white,
       ),
       body: Padding(
@@ -194,7 +195,7 @@ class _ApiSettingsPageState extends State<ApiSettingsPage> {
                     : const Icon(Icons.save),
                 label: Text(_isSaving ? '保存中...' : '保存'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF2196F3),
+                  backgroundColor: BrandColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 16),
                 ),

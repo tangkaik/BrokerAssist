@@ -1,6 +1,14 @@
 part of '../customer_detail_page.dart';
 
 extension _CustomerDetailSuggestions on _CustomerDetailPageState {
+  Widget _buildTodayReminderSuggestionCard() {
+    return CustomerReminderHighlightCard(
+      reminders: _customerTodayReminders,
+      isCompleted: _customerTodayRemindersCompleted,
+      onAcknowledge: _acknowledgeCustomerTodayReminders,
+    );
+  }
+
   Widget _buildSummarySection() {
     final summary = _customer?.summary?.trim() ?? '';
     final hasSummary = summary.isNotEmpty;

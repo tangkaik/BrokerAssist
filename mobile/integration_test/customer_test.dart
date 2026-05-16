@@ -27,8 +27,8 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(seconds: 1));
 
-      // 未登录时显示登录页（ BrokerAssist 标题）
-      expect(find.text('BrokerAssist'), findsOneWidget);
+      // 未登录时显示登录页（客记标题）
+      expect(find.text('客记'), findsOneWidget);
     });
   });
 
@@ -47,7 +47,7 @@ void main() {
       await tester.pumpWidget(const MyApp());
       await tester.pump(const Duration(seconds: 1));
 
-      expect(find.text('BrokerAssist'), findsOneWidget);
+      expect(find.text('客记'), findsOneWidget);
       expect(find.text('登录'), findsWidgets);
       expect(find.text('注册'), findsOneWidget);
     });

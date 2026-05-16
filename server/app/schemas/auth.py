@@ -45,7 +45,6 @@ class UserProfile(BaseModel):
     name: Optional[str] = None
     industry_key: str = "generic"
     industry_selected: bool = False
-    is_admin: bool = False
     created_at: datetime
 
     model_config = {"from_attributes": True}

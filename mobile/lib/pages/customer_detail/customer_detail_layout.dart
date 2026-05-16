@@ -31,7 +31,12 @@ extension _CustomerDetailLayout on _CustomerDetailPageState {
                         const Tab(text: '概览'),
                         Tab(text: '记录 ${_records.length}'),
                         const Tab(text: '产品服务'),
-                        const Tab(text: '建议'),
+                        Tab(
+                          child: _buildTabLabelWithDot(
+                            '建议',
+                            showDot: _hasActiveCustomerTodayReminder,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -112,6 +117,10 @@ extension _CustomerDetailLayout on _CustomerDetailPageState {
 
   Widget _buildSuggestionTab() {
     return _buildTabScrollView([
+      if (_customerTodayReminders.isNotEmpty) ...[
+        _buildTodayReminderSuggestionCard(),
+        const SizedBox(height: 16),
+      ],
       _buildNextStepSuggestionSection(),
       const SizedBox(height: 16),
       _buildSectionShell(
@@ -125,6 +134,28 @@ extension _CustomerDetailLayout on _CustomerDetailPageState {
         ),
       ),
     ]);
+  }
+
+  Widget _buildTabLabelWithDot(String label, {required bool showDot}) {
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Text(label),
+        if (showDot)
+          Positioned(
+            right: -9,
+            top: -3,
+            child: Container(
+              width: 7,
+              height: 7,
+              decoration: const BoxDecoration(
+                color: Color(0xFFEF4444),
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }
 

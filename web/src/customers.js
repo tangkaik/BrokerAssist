@@ -24,6 +24,31 @@ function getNameSortValue(name) {
   return String(name || "").trim();
 }
 
+function buildMediaUrl(url) {
+  if (!url) return "";
+  if (/^(https?:|blob:|data:)/.test(url)) return url;
+
+  const root = state.apiBaseUrl.replace(/\/api\/v1\/?$/, "");
+  return `${root}${url.startsWith("/") ? url : `/${url}`}`;
+}
+
+function getCustomerInitial(name) {
+  return String(name || "?").trim().slice(0, 1).toUpperCase() || "?";
+}
+
+function renderCustomerAvatar(customer) {
+  const name = customer?.name || "客户";
+  if (customer?.avatar) {
+    return `
+      <div class="customer-item-avatar has-image" aria-hidden="true">
+        <img src="${buildMediaUrl(customer.avatar)}" alt="${callbacks.escapeHtml(name)}头像" />
+      </div>
+    `;
+  }
+
+  return `<div class="customer-item-avatar" aria-hidden="true">${callbacks.escapeHtml(getCustomerInitial(name))}</div>`;
+}
+
 function sortCustomersInPlace(customers, sortBy, sortOrder) {
   if (!Array.isArray(customers) || sortBy !== "name") return;
 
@@ -70,10 +95,13 @@ export function renderCustomerList() {
 
       return `
         <article class="customer-item ${active}" data-customer-id="${customer.id}">
-          <h3>${callbacks.escapeHtml(customer.name)}</h3>
-          <p>${callbacks.escapeHtml(customer.phone || "未填写电话")}</p>
-          <div class="tag-row">${tags}</div>
-          <small>更新于 ${callbacks.formatDate(customer.updated_at || customer.created_at)}</small>
+          ${renderCustomerAvatar(customer)}
+          <div class="customer-item-body">
+            <h3>${callbacks.escapeHtml(customer.name)}</h3>
+            <p>${callbacks.escapeHtml(customer.phone || "未填写电话")}</p>
+            <div class="tag-row">${tags}</div>
+            <small>更新于 ${callbacks.formatDate(customer.updated_at || customer.created_at)}</small>
+          </div>
         </article>
       `;
     })

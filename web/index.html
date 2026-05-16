@@ -25,7 +25,6 @@
               <input id="import-customers-file" class="hidden-file-input" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
               <button id="import-customers" type="button" class="button button-secondary">导入客户 Excel</button>
               <button id="export-customers" type="button" class="button button-secondary">导出客户 Excel</button>
-              <a id="admin-link" href="./admin.html" class="button button-ghost hidden">管理后台</a>
               <button id="logout-button" type="button" class="button button-ghost">退出登录</button>
             </div>
           </div>
@@ -99,7 +98,7 @@
             <section class="hero-card">
               <div class="hero-top">
                 <div class="hero-copy">
-                  <div class="hero-avatar" aria-hidden="true">照片</div>
+                  <div id="customer-avatar" class="hero-avatar" aria-hidden="true"></div>
                   <div class="hero-copy-main">
                     <div class="hero-name-row">
                       <h3 id="customer-name"></h3>
@@ -506,6 +505,28 @@
           <button id="edit-customer-submit" type="submit" class="button button-primary">保存客户信息</button>
         </div>
       </form>
+    </dialog>
+
+    <dialog id="import-guide-dialog" class="dialog">
+      <div class="dialog-form import-guide">
+        <div class="dialog-head">
+          <div>
+            <p class="panel-kicker">Excel Import</p>
+            <h3>导入客户前，请确认表格格式</h3>
+          </div>
+          <button id="close-import-guide" type="button" class="button button-ghost">关闭</button>
+        </div>
+        <ul class="import-guide-list">
+          <li>仅支持 .xlsx 文件，第一行必须是表头。</li>
+          <li>必须包含“姓名”列；其他列可以留空。</li>
+          <li>可导入：电话、性别、年龄、生日、地址、标签。</li>
+          <li>标签可用中文逗号、英文逗号或顿号分隔。</li>
+          <li>生日建议使用 1990-01-01 这样的日期格式。</li>
+        </ul>
+        <div class="form-actions">
+          <button id="choose-import-file" type="button" class="button button-primary">选择 Excel 文件</button>
+        </div>
+      </div>
     </dialog>
 
     <dialog id="image-preview-dialog" class="dialog image-preview-dialog">

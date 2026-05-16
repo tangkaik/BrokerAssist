@@ -3,17 +3,18 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api.dart';
 import '../services/industry_settings.dart';
+import '../theme/brand_colors.dart';
 import '../widgets/customer_avatar.dart';
 import 'customer_detail_page.dart';
 
 class HomeColors {
-  static const Color background = Color(0xFFF6F7F9);
-  static const Color ink = Color(0xFF111827);
-  static const Color muted = Color(0xFF6B7280);
-  static const Color border = Color(0xFFE5E7EB);
-  static const Color teal = Color(0xFF0F766E);
-  static const Color navy = Color(0xFF1E3A5F);
-  static const Color amber = Color(0xFFD97706);
+  static const Color background = BrandColors.background;
+  static const Color ink = BrandColors.ink;
+  static const Color muted = BrandColors.muted;
+  static const Color border = BrandColors.border;
+  static const Color teal = BrandColors.primary;
+  static const Color navy = BrandColors.navy;
+  static const Color amber = BrandColors.amber;
 }
 
 class WorkspaceTitle extends StatelessWidget {
@@ -107,6 +108,7 @@ class ExistingUserHome extends StatelessWidget {
   final VoidCallback onOpenCustomers;
   final VoidCallback onTapCustomers;
   final VoidCallback onTapStaleContact;
+  final Widget reminderCard;
 
   const ExistingUserHome({
     super.key,
@@ -118,6 +120,7 @@ class ExistingUserHome extends StatelessWidget {
     required this.onOpenCustomers,
     required this.onTapCustomers,
     required this.onTapStaleContact,
+    required this.reminderCard,
   });
 
   @override
@@ -131,6 +134,8 @@ class ExistingUserHome extends StatelessWidget {
           onTapCustomers: onTapCustomers,
           onTapStaleContact: onTapStaleContact,
         ),
+        const SizedBox(height: 14),
+        reminderCard,
         const SizedBox(height: 14),
         QuickActionsRow(
           onRecord: onStartRecord,

@@ -30,6 +30,7 @@ from app.core.prompts import (
     advice as _advice_prompt,
     advice_system as _advice_system,
 )
+from app.services.industry_profile_service import get_industry_profile
 from app.services.customer_advice_store import CustomerAdviceStore
 
 logger = logging.getLogger(__name__)
@@ -692,14 +693,22 @@ class CustomerService:
         
         # 6. 调用 LLM 生成摘要
         industry_key = await self._get_user_industry_key(user_id)
-        prompt = _customer_summary_prompt(records_text, industry_key=industry_key)
+        industry_profile = await get_industry_profile(self.session, industry_key)
+        prompt = _customer_summary_prompt(
+            records_text,
+            industry_key=industry_key,
+            industry_profile=industry_profile,
+        )
 
         try:
             kimi = KimiClient()
             try:
                 response = await kimi.chat_simple(
                     prompt=prompt,
-                    system_prompt=_customer_summary_system(industry_key=industry_key),
+                    system_prompt=_customer_summary_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()
@@ -803,11 +812,13 @@ class CustomerService:
         
         # 5. 组装 Prompt
         industry_key = await self._get_user_industry_key(user_id)
+        industry_profile = await get_industry_profile(self.session, industry_key)
         prompt = _customer_chat_prompt(
             customer_summary_text=summary_text,
             recent_records_text=records_text,
             question=question,
             industry_key=industry_key,
+            industry_profile=industry_profile,
         )
 
         # 6. 调用 Kimi 生成回答
@@ -816,7 +827,10 @@ class CustomerService:
             try:
                 answer = await kimi.chat_simple(
                     prompt=prompt,
-                    system_prompt=_customer_chat_system(industry_key=industry_key),
+                    system_prompt=_customer_chat_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()
@@ -898,10 +912,12 @@ class CustomerService:
         
         # 5. 组装 Prompt
         industry_key = await self._get_user_industry_key(user_id)
+        industry_profile = await get_industry_profile(self.session, industry_key)
         prompt = _advice_prompt(
             customer_summary_text=customer.summary_text,
             recent_records_text=records_text,
             industry_key=industry_key,
+            industry_profile=industry_profile,
         )
 
         # 6. 调用 Kimi 生成建议
@@ -910,7 +926,10 @@ class CustomerService:
             try:
                 advice = await kimi.chat_simple(
                     prompt=prompt,
-                    system_prompt=_advice_system(industry_key=industry_key),
+                    system_prompt=_advice_system(
+                        industry_key=industry_key,
+                        industry_profile=industry_profile,
+                    ),
                 )
             finally:
                 await kimi.close()

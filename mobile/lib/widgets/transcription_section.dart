@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../theme/brand_colors.dart';
+
 /// 转写结果区域
 class TranscriptionSection extends StatelessWidget {
   final String? error;
@@ -42,7 +44,7 @@ class TranscriptionSection extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: Colors.blue.shade50,
+          color: BrandColors.primarySoft,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
@@ -55,7 +57,7 @@ class TranscriptionSection extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               '转写中...',
-              style: TextStyle(color: Colors.blue.shade600, fontSize: 13),
+              style: TextStyle(color: BrandColors.primary, fontSize: 13),
             ),
           ],
         ),

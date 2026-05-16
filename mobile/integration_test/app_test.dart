@@ -8,14 +8,14 @@ void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   group('登录注册流程', () {
-    testWidgets('登录页显示 BrokerAssist 标题和登录表单', (WidgetTester tester) async {
+    testWidgets('登录页显示客记标题和登录表单', (WidgetTester tester) async {
       SharedPreferences.setMockInitialValues({});
       await tester.pumpWidget(const MyApp());
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
 
       // 验证登录页正确显示
-      expect(find.text('BrokerAssist'), findsOneWidget);
+      expect(find.text('客记'), findsOneWidget);
       expect(find.text('登录'), findsWidgets);
       expect(find.text('注册'), findsOneWidget);
     });

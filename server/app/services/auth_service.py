@@ -6,6 +6,7 @@ from uuid import uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.admin import ADMIN_ACCOUNT, is_administrator_account
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models.user import User
 from app.schemas.auth import AuthResponse, LoginRequest, RegisterRequest, UserPreferencesUpdate, UserProfile
@@ -16,6 +17,9 @@ class AuthService:
         self.session = session
 
     async def register(self, data: RegisterRequest) -> AuthResponse:
+        if is_administrator_account(data.account):
+            raise ValueError(f"{ADMIN_ACCOUNT} 是系统保留账号，不能注册")
+
         existing = await self.session.scalar(
             select(User).where(User.account == data.account)
         )

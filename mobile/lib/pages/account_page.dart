@@ -8,6 +8,7 @@ import 'package:share_plus/share_plus.dart';
 import '../services/api.dart';
 import '../services/auth_session.dart';
 import '../services/industry_settings.dart';
+import '../theme/brand_colors.dart';
 import 'api_settings_page.dart';
 
 class AccountPage extends StatefulWidget {
@@ -52,6 +53,9 @@ class _AccountPageState extends State<AccountPage> {
   Future<void> _importCustomersExcel() async {
     if (_isImporting) return;
 
+    final shouldPickFile = await _showImportRequirementsSheet();
+    if (shouldPickFile != true || !mounted) return;
+
     try {
       final picked = await FilePicker.platform.pickFiles(
         type: FileType.custom,
@@ -82,6 +86,59 @@ class _AccountPageState extends State<AccountPage> {
     }
   }
 
+  Future<bool?> _showImportRequirementsSheet() {
+    return showModalBottomSheet<bool>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '导入客户 Excel',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+                ),
+                const SizedBox(height: 14),
+                const _ImportRequirementItem(text: '只支持 .xlsx 文件。'),
+                const _ImportRequirementItem(text: '第一行必须是表头。'),
+                const _ImportRequirementItem(text: '必须有“客户姓名”列，也可写“姓名”。'),
+                const _ImportRequirementItem(text: '可选列：电话、性别、年龄、生日、地址、标签。'),
+                const _ImportRequirementItem(
+                  text: '生日用 YYYY-MM-DD，标签可用“、”或“,”分隔；重复客户会跳过。',
+                ),
+                const SizedBox(height: 18),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: () => Navigator.pop(context, true),
+                    icon: const Icon(Icons.upload_file_outlined),
+                    label: const Text('选择 Excel 文件'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('取消'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
   void _showMessage(String message) {
     ScaffoldMessenger.of(
       context,
@@ -92,11 +149,13 @@ class _AccountPageState extends State<AccountPage> {
   Widget build(BuildContext context) {
     final user = AuthSession.currentUser;
     return Scaffold(
+      backgroundColor: BrandColors.background,
       appBar: AppBar(title: const Text('我的账号')),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Card(
+            color: Colors.white,
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Column(
@@ -120,14 +179,20 @@ class _AccountPageState extends State<AccountPage> {
             valueListenable: IndustrySettings.selected,
             builder: (context, industry, _) {
               return ListTile(
-                leading: const Icon(Icons.work_outline_rounded),
+                leading: const Icon(
+                  Icons.work_outline_rounded,
+                  color: BrandColors.primaryDark,
+                ),
                 title: const Text('行业设置'),
                 subtitle: Text('已锁定：${industry.workspaceLabel}'),
               );
             },
           ),
           ListTile(
-            leading: const Icon(Icons.settings_outlined),
+            leading: const Icon(
+              Icons.settings_outlined,
+              color: BrandColors.primaryDark,
+            ),
             title: const Text('API 设置'),
             onTap: () => Navigator.push(
               context,
@@ -141,7 +206,10 @@ class _AccountPageState extends State<AccountPage> {
                     height: 24,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.table_view_outlined),
+                : const Icon(
+                    Icons.table_view_outlined,
+                    color: BrandColors.primaryDark,
+                  ),
             title: const Text('导出客户 Excel'),
             subtitle: const Text('导出当前账号下的全部客户资料'),
             onTap: _isExporting ? null : _exportCustomersExcel,
@@ -153,7 +221,10 @@ class _AccountPageState extends State<AccountPage> {
                     height: 24,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Icon(Icons.upload_file_outlined),
+                : const Icon(
+                    Icons.upload_file_outlined,
+                    color: BrandColors.primaryDark,
+                  ),
             title: const Text('导入客户 Excel'),
             subtitle: const Text('从 .xlsx 文件批量创建客户'),
             onTap: _isImporting ? null : _importCustomersExcel,
@@ -163,6 +234,43 @@ class _AccountPageState extends State<AccountPage> {
             onPressed: widget.onLogout,
             icon: const Icon(Icons.logout),
             label: const Text('退出登录'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: BrandColors.primary,
+              foregroundColor: Colors.white,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ImportRequirementItem extends StatelessWidget {
+  final String text;
+
+  const _ImportRequirementItem({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 5,
+            height: 5,
+            margin: const EdgeInsets.only(top: 8, right: 10),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primary,
+              shape: BoxShape.circle,
+            ),
+          ),
+          Expanded(
+            child: Text(
+              text,
+              style: const TextStyle(fontSize: 14, height: 1.45),
+            ),
           ),
         ],
       ),

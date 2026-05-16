@@ -51,20 +51,6 @@ class User(Base):
         server_default="false",
         comment="是否已完成首次行业选择",
     )
-    is_admin: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=False,
-        server_default="false",
-        comment="是否管理员",
-    )
-    disabled: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=False,
-        server_default="false",
-        comment="是否已禁用",
-    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/api.dart';
 import '../services/api_config.dart';
+import '../theme/brand_colors.dart';
 
 /// 埋点数据导出页面
 ///
@@ -309,7 +310,7 @@ class _AnalyticsExportPageState extends State<AnalyticsExportPage> {
     return Expanded(
       child: Column(
         children: [
-          Icon(icon, color: Colors.blue, size: 28),
+          Icon(icon, color: BrandColors.primary, size: 28),
           const SizedBox(height: 8),
           Text(
             value,
@@ -435,13 +436,13 @@ class _AnalyticsExportPageState extends State<AnalyticsExportPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
             decoration: BoxDecoration(
-              color: Colors.blue.shade50,
+              color: BrandColors.primarySoft,
               borderRadius: BorderRadius.circular(12),
             ),
             child: Text(
               count.toString(),
               style: TextStyle(
-                color: Colors.blue.shade700,
+                color: BrandColors.primary,
                 fontWeight: FontWeight.bold,
               ),
             ),

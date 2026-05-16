@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:pinyin/pinyin.dart';
 import '../models/models.dart';
 import '../services/api.dart';
+import '../services/reminder_data_service.dart';
+import '../theme/brand_colors.dart';
 import '../utils/customer_search.dart';
 import '../widgets/customer_avatar.dart';
 import 'home_widgets.dart';
@@ -42,6 +44,7 @@ class _SortOption {
 class _CustomerListPageState extends State<CustomerListPage> {
   /// 客户列表
   List<Customer> _customers = [];
+  List<ReminderOccurrence> _todayReminders = [];
 
   /// 加载状态
   bool _isLoading = true;
@@ -152,18 +155,26 @@ class _CustomerListPageState extends State<CustomerListPage> {
 
     try {
       final useLocalPinyinSearch = isPinyinLikeKeyword(_keyword);
-      final response = await apiService.searchCustomers(
-        keyword: _keyword.isEmpty || useLocalPinyinSearch ? null : _keyword,
-        page: 1,
-        pageSize: useLocalPinyinSearch ? 200 : _pageSize,
-        sortBy: _sortBy,
-        sortOrder: _sortOrder,
-        summaryStatus: widget.initialFilter == 'stale-summary' ? 'stale,failed' : null,
-        staleContact: widget.initialFilter == 'stale-contact',
-      );
+      final results = await Future.wait([
+        apiService.searchCustomers(
+          keyword: _keyword.isEmpty || useLocalPinyinSearch ? null : _keyword,
+          page: 1,
+          pageSize: useLocalPinyinSearch ? 200 : _pageSize,
+          sortBy: _sortBy,
+          sortOrder: _sortOrder,
+          summaryStatus: widget.initialFilter == 'stale-summary'
+              ? 'stale,failed'
+              : null,
+          staleContact: widget.initialFilter == 'stale-contact',
+        ),
+        ReminderDataService.loadTodayReminders(),
+      ]);
+      final response = results[0] as ApiResponse<PaginatedData<Customer>>;
+      final reminders = results[1] as List<ReminderOccurrence>;
 
       setState(() {
         _isLoading = false;
+        _todayReminders = reminders;
         if (response.success && response.data != null) {
           _customers = useLocalPinyinSearch
               ? response.data!.items
@@ -204,7 +215,9 @@ class _CustomerListPageState extends State<CustomerListPage> {
         pageSize: _pageSize,
         sortBy: _sortBy,
         sortOrder: _sortOrder,
-        summaryStatus: widget.initialFilter == 'stale-summary' ? 'stale,failed' : null,
+        summaryStatus: widget.initialFilter == 'stale-summary'
+            ? 'stale,failed'
+            : null,
         staleContact: widget.initialFilter == 'stale-contact',
       );
 
@@ -323,7 +336,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
                   leading: Icon(option.icon),
                   title: Text(option.label),
                   trailing: isSelected
-                      ? const Icon(Icons.check, color: Color(0xFF2196F3))
+                      ? const Icon(Icons.check, color: BrandColors.primary)
                       : null,
                   selected: isSelected,
                   onTap: () => _changeSort(option),
@@ -351,7 +364,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
     return Scaffold(
       appBar: AppBar(
         title: Text(_filterLabel.isNotEmpty ? '客户列表 · $_filterLabel' : '客户列表'),
-        backgroundColor: const Color(0xFF2196F3),
+        backgroundColor: BrandColors.primary,
         foregroundColor: Colors.white,
         actions: [
           IconButton(
@@ -472,7 +485,7 @@ class _CustomerListPageState extends State<CustomerListPage> {
                 icon: const Icon(Icons.refresh, size: 18),
                 label: const Text('重试'),
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue.shade600,
+                  backgroundColor: BrandColors.primary,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
@@ -543,6 +556,9 @@ class _CustomerListPageState extends State<CustomerListPage> {
           final customer = _customers[index];
           return _CustomerListItem(
             customer: customer,
+            reminders: _todayReminders
+                .where((reminder) => reminder.customerId == customer.id)
+                .toList(),
             onChanged: _loadCustomers,
           );
         },
@@ -554,9 +570,14 @@ class _CustomerListPageState extends State<CustomerListPage> {
 /// 客户列表项
 class _CustomerListItem extends StatelessWidget {
   final Customer customer;
+  final List<ReminderOccurrence> reminders;
   final VoidCallback onChanged;
 
-  const _CustomerListItem({required this.customer, required this.onChanged});
+  const _CustomerListItem({
+    required this.customer,
+    required this.reminders,
+    required this.onChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -566,7 +587,12 @@ class _CustomerListItem extends StatelessWidget {
         name: customer.name,
         radius: 20,
       ),
-      title: Text(customer.name),
+      title: Wrap(
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 6,
+        runSpacing: 4,
+        children: [Text(customer.name), ..._badgeTypes.map(_ReminderBadge.new)],
+      ),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -626,6 +652,16 @@ class _CustomerListItem extends StatelessWidget {
     );
   }
 
+  List<ReminderType> get _badgeTypes {
+    final types = <ReminderType>[];
+    for (final reminder in reminders) {
+      if (!types.contains(reminder.type)) {
+        types.add(reminder.type);
+      }
+    }
+    return types.take(3).toList();
+  }
+
   String _formatDate(DateTime date) {
     final now = DateTime.now();
     final diff = now.difference(date);
@@ -640,4 +676,62 @@ class _CustomerListItem extends StatelessWidget {
       return '${date.month}/${date.day}';
     }
   }
+}
+
+class _ReminderBadge extends StatelessWidget {
+  final ReminderType type;
+
+  const _ReminderBadge(this.type);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: _backgroundColor,
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(_icon, size: 12, color: _foregroundColor),
+          const SizedBox(width: 3),
+          Text(
+            type.badgeLabel,
+            style: TextStyle(
+              fontSize: 11,
+              color: _foregroundColor,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  IconData get _icon {
+    switch (type) {
+      case ReminderType.birthday:
+        return Icons.cake_outlined;
+      case ReminderType.policyPayment:
+        return Icons.receipt_long_outlined;
+      case ReminderType.festivalGift:
+      case ReminderType.festivalCare:
+        return Icons.card_giftcard_outlined;
+    }
+  }
+
+  Color get _foregroundColor {
+    switch (type) {
+      case ReminderType.birthday:
+        return HomeColors.teal;
+      case ReminderType.policyPayment:
+        return HomeColors.navy;
+      case ReminderType.festivalGift:
+      case ReminderType.festivalCare:
+        return HomeColors.amber;
+    }
+  }
+
+  Color get _backgroundColor => _foregroundColor.withValues(alpha: 0.1);
 }

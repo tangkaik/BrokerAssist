@@ -5,7 +5,7 @@ API 路由注册中心
 """
 from fastapi import APIRouter, FastAPI
 
-from app.api import auth_routes, health_routes, customer_routes, record_routes, transcription_routes, ai_routes, analytics_routes, admin_routes
+from app.api import admin_routes, auth_routes, health_routes, customer_routes, record_routes, transcription_routes, ai_routes, analytics_routes, industry_routes
 
 
 def register_routers(app: FastAPI) -> None:
@@ -23,6 +23,7 @@ def register_routers(app: FastAPI) -> None:
     # ==========================================
     api_v1.include_router(health_routes.router)
     api_v1.include_router(auth_routes.router)
+    api_v1.include_router(industry_routes.router)
     
     # ==========================================
     # MVP 阶段路由（按模块分组）
@@ -43,7 +44,7 @@ def register_routers(app: FastAPI) -> None:
     # 埋点分析路由
     api_v1.include_router(analytics_routes.router)
 
-    # 管理后台路由
+    # 管理后台路由（独立页面使用，不挂普通工作台导航）
     api_v1.include_router(admin_routes.router)
 
     # 文件上传路由

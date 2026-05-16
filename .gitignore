@@ -51,6 +51,7 @@ Thumbs.db
 # Test outputs
 full_test_report_*.json
 test_report_*.json
+.playwright-mcp/
 
 # Local generated artifacts
 outputs/

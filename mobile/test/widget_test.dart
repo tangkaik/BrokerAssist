@@ -15,7 +15,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(MaterialApp), findsOneWidget);
-    expect(find.text('BrokerAssist'), findsOneWidget);
+    expect(find.text('客记'), findsOneWidget);
     expect(find.text('登录'), findsWidgets);
   });
 

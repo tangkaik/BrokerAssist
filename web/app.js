@@ -205,6 +205,18 @@ els.exportCustomers.addEventListener("click", async () => {
   }
 });
 els.importCustomers.addEventListener("click", () => {
+  els.importGuideDialog.showModal();
+});
+els.closeImportGuide.addEventListener("click", () => {
+  els.importGuideDialog.close();
+});
+els.importGuideDialog.addEventListener("click", (event) => {
+  if (event.target === els.importGuideDialog) {
+    els.importGuideDialog.close();
+  }
+});
+els.chooseImportFile.addEventListener("click", () => {
+  els.importGuideDialog.close();
   els.importCustomersFile.click();
 });
 els.importCustomersFile.addEventListener("change", async () => {

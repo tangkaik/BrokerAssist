@@ -6,11 +6,16 @@ import 'pages/customer_list_page.dart';
 import 'pages/ai_chat_page.dart';
 import 'pages/login_page.dart';
 import 'pages/account_page.dart';
+import 'pages/customer_detail_page.dart';
+import 'pages/reminder_center_page.dart';
 import 'services/api_config.dart';
 import 'services/api.dart';
 import 'services/auth_session.dart';
 import 'services/api_error_handler.dart';
 import 'services/industry_settings.dart';
+import 'services/local_notification_service.dart';
+import 'services/reminder_data_service.dart';
+import 'theme/brand_colors.dart';
 import 'models/models.dart';
 
 /// BrokerAssist App
@@ -19,6 +24,7 @@ void main() async {
   await ApiConfig.load();
   await AuthSession.load();
   await IndustrySettings.load();
+  await LocalNotificationService.instance.initialize();
   runApp(const MyApp());
 }
 
@@ -29,20 +35,80 @@ class MyApp extends StatefulWidget {
   State<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
+class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   bool _isAuthenticated = AuthSession.isLoggedIn;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     AuthSession.authVersion.addListener(_syncAuthState);
+    LocalNotificationService.instance.notificationTapPayload.addListener(
+      _handleNotificationTap,
+    );
     _refreshCurrentUser();
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     AuthSession.authVersion.removeListener(_syncAuthState);
+    LocalNotificationService.instance.notificationTapPayload.removeListener(
+      _handleNotificationTap,
+    );
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && AuthSession.isLoggedIn) {
+      ReminderDataService.refreshLocalNotificationSchedule();
+    }
+  }
+
+  Future<void> _handleNotificationTap() async {
+    final payload =
+        LocalNotificationService.instance.notificationTapPayload.value;
+    if (payload == null || !payload.startsWith('reminders')) return;
+    LocalNotificationService.instance.notificationTapPayload.value = null;
+    if (!AuthSession.isLoggedIn) return;
+
+    final reminderStatuses =
+        await ReminderDataService.loadTodayReminderStatuses(updateCount: true);
+    final navigator = ApiErrorHandler.navigatorKey.currentState;
+    if (navigator == null || reminderStatuses.isEmpty) return;
+    navigator.push(
+      MaterialPageRoute(
+        builder: (_) => ReminderCenterPage(
+          initialReminders: reminderStatuses
+              .map((item) => item.reminder)
+              .toList(),
+          initialCompletedReminderIds: reminderStatuses
+              .where((item) => item.isCompleted)
+              .map((item) => item.reminder.id)
+              .toSet(),
+          onOpenCustomer: (customerId) async {
+            await navigator.push(
+              MaterialPageRoute(
+                builder: (_) => CustomerDetailPage(),
+                settings: RouteSettings(arguments: customerId),
+              ),
+            );
+          },
+          onRefreshCompletedReminderIds: () async {
+            final statuses = await ReminderDataService.loadTodayReminderStatuses(
+              updateCount: true,
+            );
+            return statuses
+                .where((item) => item.isCompleted)
+                .map((item) => item.reminder.id)
+                .toSet();
+          },
+          onCompleteReminder: ReminderDataService.markCompleted,
+          onReopenReminder: ReminderDataService.reopenReminder,
+        ),
+      ),
+    );
   }
 
   void _syncAuthState() {
@@ -57,6 +123,7 @@ class _MyAppState extends State<MyApp> {
     if (response.success && response.data != null) {
       await AuthSession.updateUser(response.data!);
       await IndustrySettings.load();
+      await ReminderDataService.refreshLocalNotificationSchedule();
     } else if (response.error?.code == 'UNAUTHORIZED' ||
         response.error?.code == 'HTTP_401') {
       await AuthSession.clear();
@@ -69,6 +136,7 @@ class _MyAppState extends State<MyApp> {
     await AuthSession.save(token: session.token, user: session.user);
     await IndustrySettings.load();
     _syncAuthState();
+    await ReminderDataService.refreshLocalNotificationSchedule();
   }
 
   Future<void> _handleLogout() async {
@@ -80,9 +148,15 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '保险助手',
+      title: '客记',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
+        colorScheme: ColorScheme.fromSeed(seedColor: BrandColors.primary),
+        scaffoldBackgroundColor: BrandColors.background,
+        appBarTheme: const AppBarTheme(
+          backgroundColor: BrandColors.background,
+          foregroundColor: BrandColors.ink,
+          elevation: 0,
+        ),
         useMaterial3: true,
       ),
       navigatorKey: ApiErrorHandler.navigatorKey,
@@ -109,8 +183,10 @@ class MainNavigationScreen extends StatefulWidget {
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
-class _MainNavigationScreenState extends State<MainNavigationScreen> {
+class _MainNavigationScreenState extends State<MainNavigationScreen>
+    with WidgetsBindingObserver {
   int _currentIndex = 0;
+  int _homeReminderCount = ReminderDataService.todayReminderCount.value;
   final List<int> _tabHistory = [];
   final List<int> _tabDepths = [1, 1, 1, 1];
   late final List<_TabStackObserver> _tabObservers;
@@ -132,6 +208,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    ReminderDataService.todayReminderCount.addListener(_syncHomeReminderCount);
+    ReminderDataService.refreshTodayReminderCount();
     _tabObservers = List.generate(
       4,
       (index) => _TabStackObserver(
@@ -141,6 +220,29 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         },
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ReminderDataService.todayReminderCount.removeListener(
+      _syncHomeReminderCount,
+    );
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && AuthSession.isLoggedIn) {
+      ReminderDataService.refreshTodayReminderCount();
+    }
+  }
+
+  void _syncHomeReminderCount() {
+    if (!mounted) return;
+    setState(() {
+      _homeReminderCount = ReminderDataService.todayReminderCount.value;
+    });
   }
 
   Widget _buildTab(int index) {
@@ -158,11 +260,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final navItems = [
-      (Icons.home_outlined, Icons.home, '首页'),
-      (Icons.people_outline, Icons.people, '客户'),
-      (Icons.smart_toy_outlined, Icons.smart_toy, 'AI 助手'),
-      (Icons.person_outline, Icons.person, '我的'),
+    final navItems = <({IconData icon, IconData selectedIcon, String label})>[
+      (icon: Icons.home_outlined, selectedIcon: Icons.home, label: '首页'),
+      (icon: Icons.people_outline, selectedIcon: Icons.people, label: '客户'),
+      (
+        icon: Icons.smart_toy_outlined,
+        selectedIcon: Icons.smart_toy,
+        label: 'AI 助手',
+      ),
+      (icon: Icons.person_outline, selectedIcon: Icons.person, label: '我的'),
     ];
 
     return PopScope(
@@ -206,16 +312,84 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     _currentIndex = index;
                   });
                 },
-                destinations: navItems
-                    .map(
-                      (item) => NavigationDestination(
-                        icon: Icon(item.$1),
-                        selectedIcon: Icon(item.$2),
-                        label: item.$3,
-                      ),
-                    )
-                    .toList(),
+                destinations: List.generate(navItems.length, (index) {
+                  final item = navItems[index];
+                  final isHome = index == 0;
+                  return NavigationDestination(
+                    icon: isHome
+                        ? HomeTabIconWithBadge(
+                            icon: item.icon,
+                            count: _homeReminderCount,
+                            selected: false,
+                          )
+                        : Icon(item.icon),
+                    selectedIcon: isHome
+                        ? HomeTabIconWithBadge(
+                            icon: item.selectedIcon,
+                            count: _homeReminderCount,
+                            selected: true,
+                          )
+                        : Icon(item.selectedIcon),
+                    label: item.label,
+                  );
+                }),
               ),
+      ),
+    );
+  }
+}
+
+class HomeTabIconWithBadge extends StatelessWidget {
+  final IconData icon;
+  final int count;
+  final bool selected;
+
+  const HomeTabIconWithBadge({
+    super.key,
+    required this.icon,
+    required this.count,
+    required this.selected,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final badgeText = count > 99 ? '99+' : '$count';
+    return SizedBox(
+      width: 32,
+      height: 32,
+      child: Stack(
+        clipBehavior: Clip.none,
+        alignment: Alignment.center,
+        children: [
+          Icon(icon, size: selected ? 25 : 24),
+          if (count > 0)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Container(
+                constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE11D48),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.surface,
+                    width: 1,
+                  ),
+                ),
+                alignment: Alignment.center,
+                child: Text(
+                  badgeText,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    height: 1,
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

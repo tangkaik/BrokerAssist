@@ -3,13 +3,18 @@ import 'package:flutter/material.dart';
 import '../models/models.dart';
 import '../services/api.dart';
 import '../services/industry_settings.dart';
+import '../services/reminder_data_service.dart';
+import '../services/reminder_engine.dart';
 import '../widgets/industry_picker.dart';
+import '../widgets/today_reminder_card.dart';
 import 'ai_chat_page.dart';
 import 'edit_customer_page.dart';
 import 'api_settings_page.dart';
 import 'customer_list_page.dart';
+import 'customer_detail_page.dart';
 import 'draft_record_page.dart';
 import 'home_widgets.dart';
+import 'reminder_center_page.dart';
 
 /// 首页：根据客户数据切换新用户启动页和日常工作入口。
 class HomePage extends StatefulWidget {
@@ -23,6 +28,7 @@ class _HomePageState extends State<HomePage> {
   bool _isLoading = true;
   String? _error;
   List<Customer> _recentCustomers = const [];
+  List<ReminderOccurrence> _todayReminders = const [];
   int _customerTotal = 0;
   int _staleContactCount = 0;
   bool _showedInitialIndustryPicker = false;
@@ -50,12 +56,18 @@ class _HomePageState extends State<HomePage> {
           sortOrder: 'desc',
         ),
         apiService.getSummaryStats(),
+        ReminderDataService.loadTodayReminderStatuses(updateCount: true),
       ]);
 
       if (!mounted) return;
 
       final customerRes = results[0] as ApiResponse<PaginatedData<Customer>>;
       final statsRes = results[1] as ApiResponse<Map<String, dynamic>>;
+      final reminderStatuses = results[2] as List<ReminderOccurrenceStatus>;
+      final activeReminders = reminderStatuses
+          .where((item) => !item.isCompleted)
+          .map((item) => item.reminder)
+          .toList();
 
       setState(() {
         _isLoading = false;
@@ -73,9 +85,11 @@ class _HomePageState extends State<HomePage> {
           _staleContactCount =
               (statsRes.data!['stale_contact_count'] as int?) ?? 0;
         }
+        _todayReminders = activeReminders;
 
         _maybeShowInitialIndustryPicker();
       });
+      ReminderDataService.refreshLocalNotificationSchedule();
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -220,6 +234,10 @@ class _HomePageState extends State<HomePage> {
         onTapCustomers: () => _openCustomers(context),
         onTapStaleContact: () =>
             _openCustomersWithFilter(context, 'stale-contact'),
+        reminderCard: TodayReminderCard(
+          groups: ReminderEngine.groupForToday(_todayReminders),
+          onTap: _openReminderCenter,
+        ),
       );
     }
 
@@ -228,6 +246,63 @@ class _HomePageState extends State<HomePage> {
       onCreateCustomer: () => _showQuickCreateCustomerSheet(context),
       onOpenAI: () => _openAI(context),
     );
+  }
+
+  Future<void> _openReminderCenter() async {
+    final latestStatuses =
+        await ReminderDataService.loadTodayReminderStatuses(updateCount: true);
+    if (!mounted) return;
+    setState(() {
+      _todayReminders = latestStatuses
+          .where((item) => !item.isCompleted)
+          .map((item) => item.reminder)
+          .toList();
+    });
+
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ReminderCenterPage(
+          initialReminders: latestStatuses.map((item) => item.reminder).toList(),
+          initialCompletedReminderIds: latestStatuses
+              .where((item) => item.isCompleted)
+              .map((item) => item.reminder.id)
+              .toSet(),
+          onOpenCustomer: (customerId) async {
+            await Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (_) => CustomerDetailPage(),
+                settings: RouteSettings(arguments: customerId),
+              ),
+            );
+          },
+          onRefreshCompletedReminderIds: _loadCompletedReminderIds,
+          onCompleteReminder: ReminderDataService.markCompleted,
+          onReopenReminder: ReminderDataService.reopenReminder,
+        ),
+      ),
+    );
+    if (mounted) {
+      _loadHomeData();
+    }
+  }
+
+  Future<Set<String>> _loadCompletedReminderIds() async {
+    final statuses =
+        await ReminderDataService.loadTodayReminderStatuses(updateCount: true);
+    if (mounted) {
+      setState(() {
+        _todayReminders = statuses
+            .where((item) => !item.isCompleted)
+            .map((item) => item.reminder)
+            .toList();
+      });
+    }
+    return statuses
+        .where((item) => item.isCompleted)
+        .map((item) => item.reminder.id)
+        .toSet();
   }
 }
 

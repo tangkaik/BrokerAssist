@@ -3,6 +3,9 @@ import 'package:image_picker/image_picker.dart';
 
 import '../models/models.dart';
 import '../services/api.dart';
+import '../services/customer_ai_refresh_service.dart';
+import '../services/reminder_data_service.dart';
+import '../theme/brand_colors.dart';
 import '../widgets/image_preview.dart';
 import 'customer_detail_page.dart';
 
@@ -138,6 +141,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
       }
 
       if (content.isEmpty) {
+        await ReminderDataService.refreshLocalNotificationSchedule();
         setState(() {
           _isLoading = false;
         });
@@ -198,6 +202,8 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
         });
 
         if (recordResponse.success) {
+          await customerAiRefreshService.refreshAfterRecordSaved(customerId);
+          await ReminderDataService.refreshLocalNotificationSchedule();
           // 成功，跳转到客户详情页
           debugPrint('跳转到客户详情页: $customerId');
           _navigateToCustomerDetail(customerId);
@@ -517,7 +523,7 @@ class _CreateCustomerPageState extends State<CreateCustomerPage> {
                     label: Text(tag),
                     deleteIcon: const Icon(Icons.close, size: 18),
                     onDeleted: () => _removeTag(tag),
-                    backgroundColor: Colors.blue.shade50,
+                    backgroundColor: BrandColors.primarySoft,
                     side: BorderSide.none,
                   );
                 }).toList(),

@@ -1,57 +1,119 @@
-import { state } from "../state.js";
-import { loadDashboard } from "./dashboard.js";
-import { loadUsers } from "./users.js";
-import { loadConfig } from "./config.js";
-import { loadIndustries } from "./industries.js";
-import { loadPrompts } from "./prompts.js";
+import { ADMIN_ACCOUNT, adminFetch, getToken } from "./api.js";
+import { loadIndustryAdmin } from "./industries.js";
+import { loadUserMaintenance, loadUserOverview } from "./users.js";
 
-const navItems = document.querySelectorAll(".admin-nav-item");
-const tabs = document.querySelectorAll(".admin-tab");
-const toast = document.getElementById("admin-toast");
-const userEl = document.getElementById("admin-user-name");
-const logoutBtn = document.getElementById("admin-logout");
+export const adminEls = {
+  app: document.querySelector("#admin-app"),
+  blocked: document.querySelector("#admin-blocked"),
+  blockedMessage: document.querySelector("#admin-blocked-message"),
+  status: document.querySelector("#admin-status"),
+  tabButtons: Array.from(document.querySelectorAll("[data-admin-tab]")),
+  panels: {
+    overview: document.querySelector("#admin-tab-overview"),
+    maintenance: document.querySelector("#admin-tab-maintenance"),
+    industries: document.querySelector("#admin-tab-industries"),
+  },
+  dialog: document.querySelector("#admin-dialog"),
+  dialogTitle: document.querySelector("#admin-dialog-title"),
+  dialogBody: document.querySelector("#admin-dialog-body"),
+  dialogClose: document.querySelector("#admin-dialog-close"),
+  toast: document.querySelector("#admin-toast"),
+};
 
-function showToast(msg) {
-  toast.textContent = msg;
-  toast.classList.remove("hidden");
-  clearTimeout(showToast.timer);
-  showToast.timer = setTimeout(() => toast.classList.add("hidden"), 2800);
+let toastTimer;
+
+export function escapeHtml(text) {
+  return String(text ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
 }
 
-function switchTab(name) {
-  navItems.forEach((btn) => btn.classList.toggle("active", btn.dataset.tab === name));
-  tabs.forEach((tab) => tab.classList.toggle("hidden", tab.id !== `tab-${name}`));
-  if (name === "dashboard") loadDashboard();
-  else if (name === "users") loadUsers();
-  else if (name === "config") loadConfig();
-  else if (name === "industries") loadIndustries();
-  else if (name === "prompts") loadPrompts();
+export function formatDate(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
+  return date.toLocaleString("zh-CN", { hour12: false });
 }
 
-navItems.forEach((btn) => {
-  btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+export function showToast(message) {
+  adminEls.toast.textContent = message;
+  adminEls.toast.classList.remove("hidden");
+  window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => adminEls.toast.classList.add("hidden"), 2600);
+}
+
+export function openDialog(title, bodyHtml) {
+  adminEls.dialogTitle.textContent = title;
+  adminEls.dialogBody.innerHTML = bodyHtml;
+  adminEls.dialog.showModal();
+}
+
+export function closeDialog() {
+  adminEls.dialog.close();
+  adminEls.dialogBody.innerHTML = "";
+}
+
+function setActiveTab(tabName) {
+  adminEls.tabButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.adminTab === tabName);
+  });
+  Object.entries(adminEls.panels).forEach(([name, panel]) => {
+    panel.classList.toggle("hidden", name !== tabName);
+  });
+}
+
+async function loadTab(tabName) {
+  setActiveTab(tabName);
+  if (tabName === "overview") {
+    await loadUserOverview();
+  } else if (tabName === "maintenance") {
+    await loadUserMaintenance();
+  } else if (tabName === "industries") {
+    await loadIndustryAdmin();
+  }
+}
+
+async function bootstrap() {
+  if (!getToken()) {
+    adminEls.blockedMessage.textContent = "请先登录普通 Web 工作台，再访问管理后台。";
+    adminEls.status.textContent = "未登录";
+    return;
+  }
+
+  try {
+    const user = await adminFetch("/auth/me");
+    if ((user.account || "").toLowerCase() !== ADMIN_ACCOUNT) {
+      adminEls.blockedMessage.textContent = "当前账号没有管理后台权限。";
+      adminEls.status.textContent = `当前账号：${user.account || "-"}`;
+      return;
+    }
+
+    adminEls.blocked.classList.add("hidden");
+    adminEls.app.classList.remove("hidden");
+    adminEls.status.textContent = `管理员：${user.account}`;
+    await loadTab("overview");
+  } catch (error) {
+    adminEls.blockedMessage.textContent = error.message || "无法进入管理后台。";
+    adminEls.status.textContent = "权限检查失败";
+  }
+}
+
+adminEls.tabButtons.forEach((button) => {
+  button.addEventListener("click", async () => {
+    try {
+      await loadTab(button.dataset.adminTab);
+    } catch (error) {
+      showToast(error.message);
+    }
+  });
 });
 
-logoutBtn.addEventListener("click", () => {
-  localStorage.removeItem("brokerassist:web:auth-token");
-  localStorage.removeItem("brokerassist:web:auth-user");
-  window.location.href = "./index.html";
+adminEls.dialogClose.addEventListener("click", closeDialog);
+adminEls.dialog.addEventListener("click", (event) => {
+  if (event.target === adminEls.dialog) closeDialog();
 });
 
-function checkAdmin() {
-  if (!state.authToken) {
-    window.location.href = "./index.html";
-    return false;
-  }
-  const user = state.currentUser;
-  if (user) {
-    userEl.textContent = user.name || user.account || "";
-  }
-  return true;
-}
-
-if (checkAdmin()) {
-  loadDashboard();
-}
-
-export { showToast, checkAdmin };
+bootstrap();

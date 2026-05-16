@@ -8,9 +8,11 @@ import 'package:share_plus/share_plus.dart';
 import '../models/models.dart';
 import '../services/api.dart';
 import '../services/api_config.dart';
+import '../services/reminder_data_service.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 
 import '../widgets/customer_avatar.dart';
+import '../widgets/customer_reminder_highlight_card.dart';
 import '../widgets/image_preview.dart';
 import '../widgets/skeleton.dart';
 import 'customer_ai_page.dart';
@@ -44,6 +46,8 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
   String? _loadedCustomerId;
   Customer? _customer;
   List<Record> _records = [];
+  List<ReminderOccurrence> _customerTodayReminders = [];
+  Set<String> _completedCustomerTodayReminderIds = <String>{};
   String _adviceText = '';
   String? _adviceUpdatedAt;
 
@@ -54,6 +58,13 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
   bool _adviceExpanded = false;
   final Set<String> _analyzingImageUrls = <String>{};
   final Set<String> _expandedVisionImageUrls = <String>{};
+
+  bool get _hasActiveCustomerTodayReminder => _customerTodayReminders.any(
+    (reminder) => !_completedCustomerTodayReminderIds.contains(reminder.id),
+  );
+
+  bool get _customerTodayRemindersCompleted =>
+      _customerTodayReminders.isNotEmpty && !_hasActiveCustomerTodayReminder;
 
   @override
   void didChangeDependencies() {
@@ -96,6 +107,18 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
         _adviceText = '';
         _adviceUpdatedAt = null;
       }
+      final reminderStatuses =
+          await ReminderDataService.loadTodayReminderStatuses();
+      final customerReminderStatuses = reminderStatuses
+          .where((item) => item.reminder.customerId == _customerId)
+          .toList();
+      _customerTodayReminders = customerReminderStatuses
+          .map((item) => item.reminder)
+          .toList();
+      _completedCustomerTodayReminderIds = customerReminderStatuses
+          .where((item) => item.isCompleted)
+          .map((item) => item.reminder.id)
+          .toSet();
       setState(() {});
     } catch (e) {
       if (!mounted) return;
@@ -150,6 +173,29 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       if (mounted) {
         setState(() => _isRefreshingSummary = false);
       }
+    }
+  }
+
+  Future<void> _acknowledgeCustomerTodayReminders() async {
+    final reminders = [..._customerTodayReminders];
+    if (reminders.isEmpty) return;
+    final previousCompletedIds = {..._completedCustomerTodayReminderIds};
+
+    setState(() {
+      _completedCustomerTodayReminderIds.addAll(
+        reminders.map((reminder) => reminder.id),
+      );
+    });
+    try {
+      for (final reminder in reminders) {
+        await ReminderDataService.markCompleted(reminder);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _completedCustomerTodayReminderIds = previousCompletedIds;
+      });
+      _showMessage('提醒处理失败: $e');
     }
   }
 
@@ -489,20 +535,7 @@ class _CustomerDetailPageState extends State<CustomerDetailPage> {
       ),
     ).then((_) {
       _loadCustomerData();
-      // 新增记录后自动刷新画像和建议
-      _autoRefreshSummaryAndAdvice();
     });
-  }
-
-  Future<void> _autoRefreshSummaryAndAdvice() async {
-    if (_customerId == null) return;
-    try {
-      await apiService.generateSummary(_customerId!);
-      await apiService.generateAdvice(_customerId!);
-      _loadCustomerData();
-    } catch (_) {
-      // 静默失败，不影响用户体验
-    }
   }
 
   Future<void> _deleteRecord(String recordId) async {
